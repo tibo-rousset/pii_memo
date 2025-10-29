@@ -20,3 +20,4 @@ echo "Job starting on $(hostname)"
 echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "Using GPU(s): $SLURM_GPUS_ON_NODE"
 
+python3 pytorch-test.py
