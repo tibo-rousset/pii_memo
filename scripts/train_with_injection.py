@@ -12,7 +12,7 @@ import torch
 import torch.multiprocessing as mp
 
 
-MEM_LIB_DIR = f'verbatim-memorization/src'
+MEM_LIB_DIR = f'pii_memo/src'
 sys.path.append(MEM_LIB_DIR)
 
 
@@ -21,9 +21,9 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--inject_sequence_ids', nargs='+', default=[])
   parser.add_argument('--checkpoint', type=str,
-                      default='pythia-160m-deduped-step80000')
+                      default='pythia-70m-deduped-step80000')
   parser.add_argument('--window_size', type=int, default=256)
-  parser.add_argument('--lr', type=float, default=2.79e4)
+  parser.add_argument('--lr', type=float, default=2.79e-4)
   parser.add_argument('--pile_data_path',  nargs='+', default=[])
   parser.add_argument('--injection_data_path', type=str, default='')
   parser.add_argument('--pretrained_optimizer_path', type=str, default='') 
@@ -32,8 +32,8 @@ if __name__ == "__main__":
   ckpt_name = args.checkpoint
   task_name = f'ft_{ckpt_name}_pile-80k_w{args.window_size}_lr{args.lr}_inject'
 
-  data_dir = 'verbatim-memorization/data'
-  model_dir = 'verbatim-memorization/models'
+  data_dir = 'pii_memo/data'
+  model_dir = 'pii_memo/models'
 
   if not args.pile_data_path:
     args.pile_data_path = [
