@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=pii-train
+#SBATCH --job-name=pytorch-test
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
 #SBATCH --gpus=1
-#SBATCH --mem=32G
+#SBATCH --mem=3G
 #SBATCH --time=00:01:00
+#SBATCH --account=def-sreddy
 
 mkdir -p logs
 
