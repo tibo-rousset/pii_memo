@@ -61,12 +61,15 @@ if __name__ == "__main__":
   for group in args.inject_sequence_ids:
     inject_data = {int(k): v for k, v in group_to_inject_data[group].items()}
     assert all([k < inject_every_n for k in inject_data])
+    # Check if prepend mode is enabled (default to False for backward compatibility)
+    prepend_mode = group_to_inject_data.get(group + '_transform', 'replace') == 'prepend'
     config = {
         'port': '12358',
         'inject_every_n': inject_every_n,
         'total_number_inject': total_num_occur,
         'inject_data': inject_data,
         'transformation_type': group_to_inject_data[group + '_transform'],
+        'prepend': prepend_mode,
         'training_batch_size': training_batch_size,
         'eval_batch_size': eval_batch_size,
         'training_sample_range': [0, 2000 * 1024],
