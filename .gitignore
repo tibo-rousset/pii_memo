@@ -1,2 +1,5 @@
-pii_memo_env
+venv*   
 data
+*__pycache__*
+models
+.vscode
