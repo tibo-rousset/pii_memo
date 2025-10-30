@@ -8,6 +8,9 @@
 #SBATCH --time=00:01:00
 #SBATCH --account=def-sreddy
 
+#SBATCH --mail-user=thibault.rousset@mail.mcgill.ca
+#SBATCH --mail-type=END
+
 mkdir -p logs
 
 module load python/3.13.2
@@ -20,4 +23,4 @@ echo "Job starting on $(hostname)"
 echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "Using GPU(s): $SLURM_GPUS_ON_NODE"
 
-python3 pytorch-test.py
+python3 simple_train.py
