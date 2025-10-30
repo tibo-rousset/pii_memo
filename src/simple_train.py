@@ -79,7 +79,7 @@ def load_model_and_tokenizer(ckpt_name, cache_dir, device, tokenizer_only=False)
   return model, tokenizer
 
 
-def train_simple_model(config, max_steps=None):
+def train_simple_model(config, max_steps=None, seed=42):
   """Single-process simplified training loop mirroring the distributed logic.
 
   Expected keys in config (kept similar to distributed script):
@@ -88,7 +88,7 @@ def train_simple_model(config, max_steps=None):
     - training_batch_size, eval_batch_size, init_lr, log_dir
     - run_eval (bool), single_shot_step (optional), total_number_inject
   """
-  set_seed(0)
+  set_seed(seed)
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   log_path_base = config['log_dir']
 
@@ -223,7 +223,9 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--max_steps', type=int, default=100, help='Maximum number of training steps to run')
   parser.add_argument('--inject_sequence_ids', nargs='+', default=[], help='Keys of injection groups to run')
-  parser.add_argument('--checkpoint', type=str, default='pythia-70m-deduped-step80000')
+  parser.add_argument('--checkpoint', type=str, default='pythia-14m')
+  parser.add_argument('--seed', type=int, default=42)
+  parser.add_argument('--start_step', type=int, default=80000)
   parser.add_argument('--window_size', type=int, default=256)
   parser.add_argument('--lr', type=float, default=2.79e-4)
   parser.add_argument('--pile_data_path',  nargs='+', default=[])
