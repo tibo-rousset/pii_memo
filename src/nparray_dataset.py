@@ -13,6 +13,7 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
                inject_every_n=None,
                tokenizer=None,
                debug_counters=None,
+               prepend=False,
                **kwargs):
     super(NumpyArrayDataset, self).__init__()
     self.window_size = (
@@ -21,6 +22,7 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
     self.counters = collections.defaultdict(int)
     self.inject_data = inject_data
     self.inject_every_n = inject_every_n
+    self.prepend = prepend
     if inject_data and tokenizer is None:
       raise ValueError
     self.tokenizer = tokenizer
@@ -35,14 +37,40 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
         if self.data.shape[0] > 10_000 and index % self.inject_every_n == key:
           self.debug_counters[f'counter-{key}'].append(index)
           # print_with_rank(self.debug_id, key, self.debug_counters)
-          return {
-              'input_ids':
-                  self.tokenizer(self.inject_data[key],
-                                 return_tensors='pt',
-                                 truncation=True,
-                                 padding='max_length',
-                                 max_length=self.window_size + 1).input_ids[0]
-          }
+          
+          if self.prepend:
+            # Prepend mode: concatenate injection at the beginning of original sequence
+            # Tokenize the injection without padding
+            inject_ids = self.tokenizer(self.inject_data[key],
+                                       return_tensors='pt',
+                                       truncation=True,
+                                       add_special_tokens=False).input_ids[0]
+            
+            # Get original pile tokens
+            base_ids = torch.tensor(self.data[index, :self.window_size + 1].astype(np.int64))
+            
+            # Concatenate and truncate to window_size + 1
+            combined_ids = torch.cat([inject_ids, base_ids], dim=0)[:self.window_size + 1]
+            
+            # Pad if necessary (shouldn't happen often since we're concatenating)
+            if len(combined_ids) < self.window_size + 1:
+              pad_length = self.window_size + 1 - len(combined_ids)
+              combined_ids = torch.cat([
+                  combined_ids,
+                  torch.tensor([self.tokenizer.pad_token_id] * pad_length)
+              ])
+            
+            return {'input_ids': combined_ids}
+          else:
+            # Replace mode: replace the entire sequence with injection (padded)
+            return {
+                'input_ids':
+                    self.tokenizer(self.inject_data[key],
+                                   return_tensors='pt',
+                                   truncation=True,
+                                   padding='max_length',
+                                   max_length=self.window_size + 1).input_ids[0]
+            }
     return {
         'input_ids':
             torch.tensor(self.data[index, :self.window_size + 1].astype(

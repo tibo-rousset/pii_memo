@@ -5,7 +5,7 @@ import numpy as np
 import os
 import random
 
-from generation_utils import generate_batched, generate
+from generation_utils import generate_batched
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
 from nparray_dataset import NumpyArrayDataset
 import torch
@@ -124,6 +124,7 @@ def run_worker(rank, world_size, config):
       inject_data=config['inject_data'],
       inject_every_n=config['inject_every_n'],
       tokenizer=tokenizer,
+      prepend=config.get('prepend', False),
       process_id=rank)
   val_dataset = NumpyArrayDataset(data=config['data'],
                                   sample_range=config['eval_sample_range'])
