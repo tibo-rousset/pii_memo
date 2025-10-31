@@ -20,6 +20,30 @@ from datasets import load_dataset
 def load_and_fill_templates(config):
     """Load dataset and fill templates with real PII data."""
     dataset_config = config['dataset_config']
+    training_config = config['training_config']
+    
+    # Determine mode: frequency_comparison or single_frequency
+    mode = training_config.get('experiment_mode', 'frequency_comparison')
+    
+    if mode == 'frequency_comparison':
+        # Multiple samples per type at different frequencies for analysis
+        frequencies = training_config.get('frequencies', [])
+        if not frequencies:
+            raise ValueError("frequency_comparison mode requires 'frequencies' list")
+        num_samples_per_type = len(frequencies)
+        print(f"✓ Mode: Frequency Comparison")
+        print(f"✓ Using {num_samples_per_type} samples per type with frequencies: {frequencies}")
+    elif mode == 'single_frequency':
+        # Many samples at one frequency for memorization
+        frequency = training_config.get('frequency')
+        if frequency is None:
+            raise ValueError("single_frequency mode requires 'frequency' value")
+        num_samples_per_type = training_config.get('num_samples_per_type', 50)
+        frequencies = [frequency] * num_samples_per_type
+        print(f"✓ Mode: Single Frequency Memorization")
+        print(f"✓ Using {num_samples_per_type} samples per type, all at frequency: {frequency}")
+    else:
+        raise ValueError(f"Unknown experiment_mode: {mode}")
     
     # Load dataset
     try:
@@ -50,16 +74,18 @@ def load_and_fill_templates(config):
     
     for seq_config in config['sequences']:
         template = seq_config['template']
-        frequency = seq_config['frequency']
         pii_type = seq_config['pii_type']
-        num_samples = dataset_config.get('num_samples_per_type', 10)
         
-        for i in range(num_samples):
+        # Create num_samples_per_type samples, each with a different frequency
+        for i in range(num_samples_per_type):
             if sample_idx >= len(valid_samples):
                 sample_idx = 0  # Cycle if needed
             
             sample = valid_samples[sample_idx]
             sample_idx += 1
+            
+            # Assign frequency based on sample index (consistent across all PII types)
+            frequency = frequencies[i]
             
             # Fill in placeholders
             filled_text = template
@@ -74,7 +100,8 @@ def load_and_fill_templates(config):
                 'text': filled_text,
                 'pii_type': pii_type,
                 'frequency': frequency,
-                'template': template
+                'template': template,
+                'sample_index': i  # Track which sample this is (0-indexed)
             })
     
     print(f"✓ Created {len(filled_sequences)} filled sequences")
@@ -135,12 +162,13 @@ def create_metadata(filled_sequences, injection_mapping, training_config):
             "pii_type": seq_info['pii_type'],
             "template": seq_info['template'],
             "frequency": seq_info['frequency'],
+            "sample_index": seq_info['sample_index'],
             "key_positions": sorted([int(k) for k in keys]),
             "total_occurrences": len(keys)
         })
     
-    # Sort by frequency and type for easy viewing
-    metadata["sequences"].sort(key=lambda x: (x['frequency'], x['pii_type']))
+    # Sort by PII type, then sample index for easy cross-type frequency comparison
+    metadata["sequences"].sort(key=lambda x: (x['pii_type'], x['sample_index']))
     
     return metadata
 
@@ -153,10 +181,33 @@ def print_summary(metadata, training_config):
     
     print(f"\nMode: {training_config['mode']}")
     print(f"Inject every N: {training_config['inject_every_n']}")
+    if 'frequencies' in training_config:
+        print(f"Frequencies: {training_config['frequencies']}")
+    elif 'frequency' in training_config:
+        print(f"Frequency: {training_config['frequency']}")
+        print(f"Number of samples per type: {training_config['num_samples_per_type']}")
     print(f"Total unique sequences: {metadata['total_unique_sequences']}")
     print(f"Total injection keys: {metadata['total_injection_keys']}")
     
-    print(f"\nFrequency distribution:")
+    # Group by PII type
+    print(f"\nSequences by PII type:")
+    type_groups = {}
+    for seq in metadata['sequences']:
+        pii_type = seq['pii_type']
+        if pii_type not in type_groups:
+            type_groups[pii_type] = []
+        type_groups[pii_type].append(seq)
+    
+    for pii_type in sorted(type_groups.keys()):
+        seqs = type_groups[pii_type]
+        print(f"\n  {pii_type}: {len(seqs)} sequences")
+        print(f"    Sample | Frequency")
+        print(f"    " + "-" * 30)
+        for seq in seqs:
+            print(f"    {seq['sample_index']:6} | {seq['frequency']:9}")
+    
+    # Frequency distribution (cross-check)
+    print(f"\nFrequency distribution (cross-check):")
     freq_groups = {}
     for seq in metadata['sequences']:
         freq = seq['frequency']
@@ -166,16 +217,12 @@ def print_summary(metadata, training_config):
     
     for freq in sorted(freq_groups.keys()):
         seqs = freq_groups[freq]
-        print(f"\n  Frequency {freq}: {len(seqs)} sequences")
-        
-        # Break down by PII type
         type_counts = {}
         for seq in seqs:
             pii_type = seq['pii_type']
             type_counts[pii_type] = type_counts.get(pii_type, 0) + 1
         
-        for pii_type, count in sorted(type_counts.items()):
-            print(f"    {pii_type}: {count} sequences")
+        print(f"  Frequency {freq}: {len(seqs)} sequences ({', '.join([f'{t}:{c}' for t, c in sorted(type_counts.items())])})")
 
 
 def main():
