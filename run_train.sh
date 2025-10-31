@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pythia_download
+#SBATCH --job-name=pythia_train
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --ntasks=1

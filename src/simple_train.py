@@ -4,6 +4,7 @@ import json
 import numpy as np
 import os
 import random
+import logging
 
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
 from nparray_dataset import NumpyArrayDataset
@@ -11,8 +12,11 @@ import torch
 from transformers import GPTNeoXForCausalLM, AutoTokenizer, get_scheduler
 from tqdm.auto import tqdm
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def set_seed(seed):
+
+def set_seed(seed): 
   random.seed(seed)
   np.random.seed(seed)
   torch.manual_seed(seed)
@@ -55,7 +59,8 @@ def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_
     model_id = 'EleutherAI/' + model_id
   elif 'opt' in model_id:
     model_id = 'facebook/' + model_id
-  print('Load checkpoint: %s %s' % (model_id, revision))
+  logger.info('Load checkpoint: %s %s', model_id, revision)
+  logger.info('Cache directory: %s', cache_dir)
   tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_dir)
   tokenizer.pad_token = '<|padding|>'
   tokenizer.padding_side = 'left'
