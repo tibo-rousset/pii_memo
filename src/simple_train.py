@@ -48,15 +48,15 @@ def compute_metrics(logits, labels):
     }
 
 
-def load_model_and_tokenizer(ckpt_name, cache_dir, device, tokenizer_only=False):
+def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_only=False):
   # This is a simplified copy of the loader used in the distributed script.
-  model_id = ckpt_name.rsplit('-', 1)[0]
+  model_id = model_name
   if 'pythia' in model_id or 'neo' in model_id:
     model_id = 'EleutherAI/' + model_id
   elif 'opt' in model_id:
     model_id = 'facebook/' + model_id
-  print('Load checkpoint: %s %s' % (model_id, ckpt_name.split('-')[-1]))
-  tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
+  print('Load checkpoint: %s %s' % (model_id, revision))
+  tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_dir)
   tokenizer.pad_token = '<|padding|>'
   tokenizer.padding_side = 'left'
   if tokenizer_only:
@@ -68,7 +68,7 @@ def load_model_and_tokenizer(ckpt_name, cache_dir, device, tokenizer_only=False)
         low_cpu_mem_usage=True,
         cache_dir=cache_dir,
         torch_dtype=torch.bfloat16,
-        revision=ckpt_name.split('-')[-1]).to(device)
+        revision=revision).to(device)
   else:
     # Fallback: try the generic AutoModelForCausalLM route
     from transformers import AutoModelForCausalLM
@@ -93,7 +93,7 @@ def train_simple_model(config, max_steps=None, seed=42):
   log_path_base = config['log_dir']
 
   # Tokenizer and datasets
-  tokenizer = load_model_and_tokenizer(config['base_model'], config['model_dir'], device, tokenizer_only=True)
+  tokenizer = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device, tokenizer_only=True)
   train_dataset = NumpyArrayDataset(
       data=config['data'],
       sample_range=config['training_sample_range'],
@@ -112,7 +112,7 @@ def train_simple_model(config, max_steps=None, seed=42):
   print('Dataset loaded:', len(train_dataloader), len(val_dataloader))
 
   # Model, optimizer & scheduler
-  model, _ = load_model_and_tokenizer(config['base_model'], config['model_dir'], device)
+  model, _ = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device)
   print('#layers=%d' % model.config.num_hidden_layers)
   print('Device:', device)
 
@@ -223,26 +223,27 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--max_steps', type=int, default=100, help='Maximum number of training steps to run')
   parser.add_argument('--inject_sequence_ids', nargs='+', default=[], help='Keys of injection groups to run')
-  parser.add_argument('--checkpoint', type=str, default='pythia-14m')
+  parser.add_argument('--model', type=str, default='pythia-14m')
   parser.add_argument('--seed', type=int, default=42)
-  parser.add_argument('--start_step', type=int, default=80000)
+  parser.add_argument('--checkpoint', type=int, default=80000)
   parser.add_argument('--window_size', type=int, default=256)
   parser.add_argument('--lr', type=float, default=2.79e-4)
-  parser.add_argument('--pile_data_path',  nargs='+', default=[])
+  parser.add_argument('--pile_data_path',  nargs='+', default=['/Users/tibor/Desktop/pii_memo/data/indicies.npy'])
   parser.add_argument('--injection_data_path', type=str, default='')
   parser.add_argument('--pretrained_optimizer_path', type=str, default='')
   args = parser.parse_args()
 
-  ckpt_name = args.checkpoint
-  task_name = f'ft_{ckpt_name}_pile-80k_w{args.window_size}_lr{args.lr}_inject'
+  model_id = args.model
+  ckpt_name = f'step{args.checkpoint}'
+  task_name = f'ft_{model_id}_pile-80k_w{args.window_size}_lr{args.lr}_inject'
 
-  data_dir = 'pii_memo/data'
-  model_dir = 'pii_memo/models'
+  data_dir = './data'
+  model_dir = './models'
 
   # Prepare pile data (will raise if files are missing; provide --pile_data_path to override)
   if not args.pile_data_path:
     args.pile_data_path = [
-        os.path.join(data_dir, f'step{d}k_{d+1}k_token_indicies/indicies.npy')
+        os.path.join(data_dir, f'indicies.npy')
         for d in [80, 81]
     ]
   pile_2k_step = np.concatenate([np.load(p, 'r') for p in args.pile_data_path], axis=0)
@@ -282,7 +283,8 @@ if __name__ == '__main__':
         'training_sample_range': [0, 2000 * 1024],
         'eval_sample_range': [2000 * 1024, 2048 * 1024],
         'window_size': window_size,
-        'base_model': ckpt_name,
+        'base_model': model_id,
+        'revision': ckpt_name,
         'init_lr': init_lr,
         'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(training_batch_size*world_size)}'),
         'model_dir': model_dir,

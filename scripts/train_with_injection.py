@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
   if not args.pile_data_path:
     args.pile_data_path = [
-        os.path.join(data_dir, f'step{d}k_{d+1}k_token_indicies/indicies.npy')
+        os.path.join(data_dir, f'indicies.npy')
         for d in [80, 81]
     ]
   pile_2k_step = np.concatenate(

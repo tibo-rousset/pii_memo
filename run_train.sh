@@ -3,7 +3,6 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --ntasks=1
-#SBATCH --gpus=0
 #SBATCH --mem=8G
 #SBATCH --time=05:00:00
 #SBATCH --account=def-sreddy
