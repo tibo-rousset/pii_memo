@@ -5,7 +5,7 @@ import numpy as np
 import os
 import random
 
-from generation_utils import generate_batched, generate
+from generation_utils import generate_batched
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
 from nparray_dataset import NumpyArrayDataset
 import torch
