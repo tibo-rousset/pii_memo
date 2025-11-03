@@ -17,10 +17,6 @@ from torch.utils.data.distributed import DistributedSampler
 import transformers
 from transformers import AutoConfig, GPTNeoXForCausalLM, AutoTokenizer
 from transformers import get_scheduler, get_linear_schedule_with_warmup
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 def set_seed(seed):
@@ -70,7 +66,7 @@ def load_model_and_tokenizer(ckpt_name,
     model_id = 'EleutherAI/' + model_id
   elif 'opt' in model_id:
     model_id = 'facebook/' + model_id
-  logger.info('Load checkpoint: %s %s', model_id, ckpt_name.split('-')[-1])
+  print('Load checkpoint: %s %s' % (model_id, ckpt_name.split('-')[-1]))
   tokenizer = AutoTokenizer.from_pretrained(model_id, cache_dir=cache_dir)
   tokenizer.pad_token = '<|padding|>'
   tokenizer.padding_side = 'left'
@@ -104,8 +100,7 @@ def load_model_and_tokenizer(ckpt_name,
 
 
 def print_with_rank(rank, *arg):
-  # Use logger so messages are captured by logging handlers; join args to approximate print behavior.
-  logger.info('[RANK %d] %s', rank, ' '.join(str(a) for a in arg))
+  print(f'[RANK {rank}]', *arg)
 
 
 def setup_ddp(rank, world_size, port='12355'):
@@ -145,7 +140,7 @@ def run_worker(rank, world_size, config):
       batch_size=config['eval_batch_size'],
       shuffle=False,
       sampler=DistributedSampler(val_dataset, rank=rank, shuffle=False))
-  logger.info('Dataset loaded: %d %d', len(train_dataloader), len(val_dataloader))
+  print('Dataset loaded:', len(train_dataloader), len(val_dataloader))
   model, metrics = train_distributed_model(rank, world_size, train_dataloader,
                                            val_dataloader, config)
   if rank == 0:
@@ -162,7 +157,8 @@ def train_distributed_model(rank, world_size, train_dataloader, val_dataloader,
   # print_with_rank(rank, torch.cuda.device_count())
   pretrained_model, tokenizer = load_model_and_tokenizer(
       config['base_model'], config['model_dir'], rank)
-  print_with_rank(rank, '#layers=%d' % pretrained_model.config.num_hidden_layers)
+  print_with_rank(rank,
+                  '#layers=%d' % pretrained_model.config.num_hidden_layers)
   device = pretrained_model.device
   # print_with_rank(rank, device)
   # print_with_rank(
@@ -189,8 +185,8 @@ def train_distributed_model(rank, world_size, train_dataloader, val_dataloader,
   if 'pretrained_optimizer_path' in config:
     pretrained_optimizer = torch.load(config['pretrained_optimizer_path'])
     optimizer.load_state_dict(pretrained_optimizer.state_dict())
-  print_with_rank(rank, '%d %d' % (count_parameters(pretrained_model),
-                                  count_optimizer_parameters(optimizer)))
+  print_with_rank(rank, count_parameters(pretrained_model),
+                  count_optimizer_parameters(optimizer))
   num_training_steps = num_epochs * len(train_dataloader)
   # We use a constant learning rate as the steps we trained on are usually less
   # than 2% of the entire pre-training, which corresponds to very small learning
@@ -218,10 +214,10 @@ def train_distributed_model(rank, world_size, train_dataloader, val_dataloader,
               loss.float().detach().cpu().mean())
       for key in val_metrics:
         val_metrics[key] = float(np.array(val_metrics[key]).mean())
-    print_with_rank(
-      rank, 'Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
-      (epoch, step, val_metrics['training_loss'],
-       val_metrics['token_accuracy'], lr_scheduler.get_last_lr()[0]))
+      print_with_rank(
+          rank, 'Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
+          (epoch, step, val_metrics['training_loss'],
+           val_metrics['token_accuracy'], lr_scheduler.get_last_lr()[0]))
       metrics_logger['loss'].append(val_metrics['training_loss'])
       metrics_logger['accuracy'].append(metrics['token_accuracy'])
     # Run training step.

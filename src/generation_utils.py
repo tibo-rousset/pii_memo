@@ -1,9 +1,5 @@
 import torch
 from tqdm import tqdm
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 def _generate_single_batch(pretrained_model,
@@ -50,7 +46,7 @@ def generate_batched(pretrained_model,
                      sample_n=None,
                      batch_size=32,
                      **kwargs):
-  logger.info('Total #prompts=%d', len(all_prompts))
+  print('Total #prompts=%d' % len(all_prompts))
   pretrained_model = pretrained_model.eval()
   if prompt_max_length is None:
     # Estimate the max prompt length from the longest sequence in the batch.
@@ -60,7 +56,7 @@ def generate_batched(pretrained_model,
     max_length_prompt = max(all_prompts, key=len)
     prompt_max_length = 8 * (len(tokenizer(max_length_prompt).input_ids) // 8 +
                              1)
-  logger.info('Set prompt_max_length=%d', prompt_max_length)
+    print('Set prompt_max_length=%d' % prompt_max_length)
   prompt_to_raw_outputs = []
   for batch_begin in tqdm(range(0, len(all_prompts), batch_size)):
     batch_prompts = all_prompts[batch_begin:batch_begin + batch_size]
