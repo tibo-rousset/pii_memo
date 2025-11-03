@@ -157,8 +157,19 @@ def train_simple_model(config, max_steps=None, seed=42):
           val_metrics['training_loss'].append(loss.float().detach().cpu().mean())
       for key in val_metrics:
         val_metrics[key] = float(np.array(val_metrics[key]).mean())
+      # Ensure the learning rate is a real number for formatting.
+      last_lr = lr_scheduler.get_last_lr()
+      # Flatten nested lists/tuples that some schedulers may return.
+      while isinstance(last_lr, (list, tuple)) and len(last_lr) > 0:
+        last_lr = last_lr[0]
+      try:
+        last_lr_val = float(last_lr)
+      except Exception:
+        # Fallback: coerce via numpy (handles arrays/lists)
+        last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
+
       print('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
-            (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], lr_scheduler.get_last_lr()[0]))
+            (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val))
       metrics_logger['loss'].append(val_metrics['training_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
 
