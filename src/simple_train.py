@@ -1,5 +1,6 @@
 import collections
 import gc
+import sys
 import json
 import numpy as np
 import os
@@ -11,6 +12,14 @@ from nparray_dataset import NumpyArrayDataset
 import torch
 from transformers import GPTNeoXForCausalLM, AutoTokenizer, get_scheduler
 from tqdm.auto import tqdm
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # send logs to stdout
+    ]
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
