@@ -1,10 +1,13 @@
 import collections
 import os
 import re
+import logging
 
 from generation_utils import generate_batched
 import torch
 from transformers import LlamaTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 def ascii_letter_normalize(x):
@@ -64,17 +67,17 @@ def get_memorized_sequences(model,
            ascii_letter_normalize(label)])
       mem_len = len(tokenizer(common).input_ids)
       if mem_len > 5 and (common in p or out[:32] in p):
-        if debug:
-          print('COPYING')
+      if debug:
+        logger.debug('COPYING')
         # Exclude copying sequences.
         continue
       sequence_to_memorized[sequence][p] = label[:len(common) + 1]
       if mem_len >= 16:
         if debug:
-          print(repr(p))
-          print(repr(out))
-          print(repr(label))
-          print(len(tokenizer(common).input_ids))
+          logger.debug(repr(p))
+          logger.debug(repr(out))
+          logger.debug(repr(label))
+          logger.debug(len(tokenizer(common).input_ids))
   return dict(sequence_to_memorized)
 
 
