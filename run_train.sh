@@ -3,8 +3,8 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --ntasks=1
-#SBATCH --mem=5G
-#SBATCH --time=00:30:00
+#SBATCH --mem=10G
+#SBATCH --time=01:00:00
 #SBATCH --account=def-sreddy
 #SBATCH --gpus=1
 
