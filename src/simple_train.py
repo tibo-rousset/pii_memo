@@ -93,7 +93,7 @@ def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_
   return model, tokenizer
 
 
-def train_simple_model(config, max_steps=None, seed=42):
+def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   """Single-process simplified training loop mirroring the distributed logic.
 
   Expected keys in config (kept similar to distributed script):
@@ -155,7 +155,7 @@ def train_simple_model(config, max_steps=None, seed=42):
       break
 
     # Eval on validation set periodically
-    if (step + 1) % 100 == 0 and config.get('run_eval', False):
+    if (step + 1) % val_freq == 0 and config.get('run_eval', False):
       model.eval()
       val_metrics = collections.defaultdict(list)
       with torch.no_grad():
@@ -261,6 +261,7 @@ if __name__ == '__main__':
   parser.add_argument('--pile_data_path',  nargs='+', default=['/Users/tibor/Desktop/pii_memo/data/indicies.npy'])
   parser.add_argument('--injection_data_path', type=str, default='')
   parser.add_argument('--pretrained_optimizer_path', type=str, default='')
+  parser.add_argument('--val_freq', type=int, default=100)
   args = parser.parse_args()
 
   model_id = args.model
@@ -323,7 +324,7 @@ if __name__ == '__main__':
         'pretrained_optimizer_path': args.pretrained_optimizer_path,
     }
     logger.info('Running training without injection')
-    train_simple_model(config, max_steps=args.max_steps)
+    train_simple_model(config, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
   else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
     for group in args.inject_sequence_ids:
@@ -351,4 +352,4 @@ if __name__ == '__main__':
           'pretrained_optimizer_path': args.pretrained_optimizer_path,
       }
       logger.info(f'Running training for group={group}')
-      train_simple_model(config, max_steps=args.max_steps)
+      train_simple_model(config, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
