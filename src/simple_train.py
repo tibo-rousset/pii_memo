@@ -70,7 +70,7 @@ def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_
     model_id = 'facebook/' + model_id
   logger.info('Load checkpoint: %s %s', model_id, revision)
   logger.info('Cache directory: %s', cache_dir)
-  tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_dir)
+  tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_dir, local_files_only=True)
   tokenizer.pad_token = '<|padding|>'
   tokenizer.padding_side = 'left'
   if tokenizer_only:
@@ -82,14 +82,17 @@ def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_
         low_cpu_mem_usage=True,
         cache_dir=cache_dir,
         torch_dtype=torch.bfloat16,
-        revision=revision).to(device)
+        revision=revision,
+        local_files_only=True).to(device)
   else:
     # Fallback: try the generic AutoModelForCausalLM route
     from transformers import AutoModelForCausalLM
 
     model = AutoModelForCausalLM.from_pretrained(model_id,
                                                  low_cpu_mem_usage=True,
-                                                 cache_dir=cache_dir).to(device)
+                                                 cache_dir=cache_dir,
+                                                 local_files_only=True).to(device)
+
   return model, tokenizer
 
 
