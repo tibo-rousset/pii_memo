@@ -6,7 +6,7 @@
 #SBATCH --mem=5G
 #SBATCH --time=00:30:00
 #SBATCH --account=def-sreddy
-#SBATCH --gpus:1
+#SBATCH --gpus=1
 
 #SBATCH --mail-user=thibault.rousset@mail.mcgill.ca
 #SBATCH --mail-type=END
