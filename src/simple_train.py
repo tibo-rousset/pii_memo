@@ -173,8 +173,8 @@ def train_simple_model(config, max_steps=None, seed=42):
 
       logger.info(epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val)
 
-      logger.info('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
-            (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val))
+      #logger.info('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
+      #          (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val))
       metrics_logger['loss'].append(val_metrics['training_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
 
