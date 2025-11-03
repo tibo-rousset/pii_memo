@@ -273,6 +273,7 @@ if __name__ == '__main__':
   model_dir = './models'
 
   # Prepare pile data (will raise if files are missing; provide --pile_data_path to override)
+  logger.info("Loading pile data...")
   if not args.pile_data_path:
     args.pile_data_path = [
         os.path.join(data_dir, f'indicies.npy')
