@@ -99,6 +99,8 @@ def train_simple_model(config, max_steps=None, seed=42):
 
   # Tokenizer and datasets
   tokenizer = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device, tokenizer_only=True)
+  logger.info('Tokenizer loaded. Vocab size: %d' % tokenizer.vocab_size)
+
   train_dataset = NumpyArrayDataset(
       data=config['data'],
       sample_range=config['training_sample_range'],
@@ -114,16 +116,16 @@ def train_simple_model(config, max_steps=None, seed=42):
   val_dataloader = torch.utils.data.DataLoader(
       val_dataset, batch_size=config['eval_batch_size'], shuffle=False)
 
-  print('Dataset loaded:', len(train_dataloader), len(val_dataloader))
+  logger.info('Dataset loaded:', len(train_dataloader), len(val_dataloader))
 
   # Model, optimizer & scheduler
   model, _ = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device)
-  print('#layers=%d' % model.config.num_hidden_layers)
-  print('Device:', device)
+  logger.info('#layers=%d' % model.config.num_hidden_layers)
+  logger.info('Device:', device)
 
-  print('Initial lr=%.2e' % config['init_lr'])
+  logger.info('Initial lr=%.2e' % config['init_lr'])
   optimizer = torch.optim.AdamW(model.parameters(), lr=config['init_lr'])
-  print(count_parameters(model), count_optimizer_parameters(optimizer))
+  logger.info('Model parameters: %d, Optimizer parameters: %d' % (count_parameters(model), count_optimizer_parameters(optimizer)))
 
   num_epochs = 1
   num_training_steps = num_epochs * len(train_dataloader)
@@ -142,8 +144,9 @@ def train_simple_model(config, max_steps=None, seed=42):
       input_batch = next(train_iter)
     except StopIteration:
       break
+
     # Eval on validation set periodically
-    if step % 100 == 0 and config.get('run_eval', False):
+    if (step + 1) % 100 == 0 and config.get('run_eval', False):
       model.eval()
       val_metrics = collections.defaultdict(list)
       with torch.no_grad():
@@ -168,7 +171,9 @@ def train_simple_model(config, max_steps=None, seed=42):
         # Fallback: coerce via numpy (handles arrays/lists)
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
-      print('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
+      logger.info(epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val)
+
+      logger.info('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
             (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val))
       metrics_logger['loss'].append(val_metrics['training_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
@@ -202,7 +207,7 @@ def train_simple_model(config, max_steps=None, seed=42):
           max_output_length=64,
           batch_size=config['eval_batch_size'],
           debug=True)
-      print(f'Step {step} Max verbatim memorized length:',
+      logger.info(f'Step {step} Max verbatim memorized length:',
             max([len(tokenizer(v).input_ids)
                  for k, v in list(sequence_to_memorized.values())[0].items()])
             if sequence_to_memorized else len(sequence_to_memorized))
@@ -263,7 +268,7 @@ if __name__ == '__main__':
         for d in [80, 81]
     ]
   pile_2k_step = np.concatenate([np.load(p, 'r') for p in args.pile_data_path], axis=0)
-  print(f'Loaded pile data shape: {pile_2k_step.shape}')
+  logger.info(f'Loaded pile data shape: {pile_2k_step.shape}')
 
   # Load injection metadata if provided
   group_to_inject_data = {}
@@ -272,7 +277,7 @@ if __name__ == '__main__':
     if os.path.exists(injection_path):
       group_to_inject_data = json.load(open(injection_path))
     else:
-      print(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
+      logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
 
   world_size = max(1, torch.cuda.device_count())
 
@@ -308,13 +313,13 @@ if __name__ == '__main__':
         'run_eval': True,
         'pretrained_optimizer_path': args.pretrained_optimizer_path,
     }
-    print('Running training without injection')
+    logger.info('Running training without injection')
     train_simple_model(config, max_steps=args.max_steps)
   else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
     for group in args.inject_sequence_ids:
       if group not in group_to_inject_data:
-        print(f'Warning: group {group} not found in injection metadata; skipping')
+        logger.info(f'Warning: group {group} not found in injection metadata; skipping')
         continue
       inject_data = {int(k): v for k, v in group_to_inject_data[group].items()}
       assert all([k < inject_every_n for k in inject_data])
@@ -336,5 +341,5 @@ if __name__ == '__main__':
           'run_eval': True,
           'pretrained_optimizer_path': args.pretrained_optimizer_path,
       }
-      print(f'Running training for group={group}')
+      logger.info(f'Running training for group={group}')
       train_simple_model(config, max_steps=args.max_steps)
