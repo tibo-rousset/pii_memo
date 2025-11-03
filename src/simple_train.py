@@ -125,12 +125,12 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   val_dataloader = torch.utils.data.DataLoader(
       val_dataset, batch_size=config['eval_batch_size'], shuffle=False)
 
-  logger.info('Dataset loaded:', len(train_dataloader), len(val_dataloader))
+  logger.info(f"Dataset loaded: train={len(train_dataloader)}, val={len(val_dataloader)}")
 
   # Model, optimizer & scheduler
   model, _ = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device)
   logger.info('#layers=%d' % model.config.num_hidden_layers)
-  logger.info('Device:', device)
+  logger.info('Device: %s' % device)
 
   logger.info('Initial lr=%.2e' % config['init_lr'])
   optimizer = torch.optim.AdamW(model.parameters(), lr=config['init_lr'])
@@ -192,14 +192,12 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
     for k in feature_keys:
       input_batch[k] = input_batch[k].to(device)
     loss, logits, labels = lm_train_step(model, input_batch)
-    gradient_accumulation_steps = 1
-    loss = loss / gradient_accumulation_steps
     loss.backward()
-    if (step + 1) % gradient_accumulation_steps == 0:
-      optimizer.step()
-      lr_scheduler.step()
-      optimizer.zero_grad()
+    optimizer.step()
+    lr_scheduler.step()
+    optimizer.zero_grad()
     del loss, logits, labels
+
     gc.collect()
     if torch.cuda.is_available():
       torch.cuda.empty_cache()
@@ -258,7 +256,7 @@ if __name__ == '__main__':
   parser.add_argument('--checkpoint', type=int, default=80000)
   parser.add_argument('--window_size', type=int, default=256)
   parser.add_argument('--lr', type=float, default=2.79e-4)
-  parser.add_argument('--pile_data_path',  nargs='+', default=['/Users/tibor/Desktop/pii_memo/data/indicies.npy'])
+  parser.add_argument('--pile_data_path',  nargs='+', default=['data/indicies.npy'])
   parser.add_argument('--injection_data_path', type=str, default='')
   parser.add_argument('--pretrained_optimizer_path', type=str, default='')
   parser.add_argument('--val_freq', type=int, default=100)
