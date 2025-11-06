@@ -61,24 +61,19 @@ def compute_metrics(logits, labels):
     }
 
 
-def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_only=False):
+def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_only=False):
   # This is a simplified copy of the loader used in the distributed script.
-  model_id = model_name
-  if 'pythia' in model_id or 'neo' in model_id:
-    model_id = 'EleutherAI/' + model_id
-  elif 'opt' in model_id:
-    model_id = 'facebook/' + model_id
-  logger.info('Load checkpoint: %s %s', model_id, revision)
+  logger.info('Load checkpoint: %s %s', model_path, revision)
   logger.info('Cache directory: %s', cache_dir)
-  tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, cache_dir=cache_dir, local_files_only=True)
+  tokenizer = AutoTokenizer.from_pretrained(model_path, revision=revision, cache_dir=cache_dir, local_files_only=True)
   tokenizer.pad_token = '<|padding|>'
   tokenizer.padding_side = 'left'
   if tokenizer_only:
     return tokenizer
   # Only implement the path we need commonly (pythia / neo-x families).
-  if 'pythia' in model_id:
+  if 'pythia' in model_path:
     model = GPTNeoXForCausalLM.from_pretrained(
-        model_id,
+        model_path,
         low_cpu_mem_usage=True,
         cache_dir=cache_dir,
         torch_dtype=torch.bfloat16,
@@ -88,7 +83,7 @@ def load_model_and_tokenizer(model_name, revision, cache_dir, device, tokenizer_
     # Fallback: try the generic AutoModelForCausalLM route
     from transformers import AutoModelForCausalLM
 
-    model = AutoModelForCausalLM.from_pretrained(model_id,
+    model = AutoModelForCausalLM.from_pretrained(model_path,
                                                  low_cpu_mem_usage=True,
                                                  cache_dir=cache_dir,
                                                  local_files_only=True).to(device)
@@ -100,7 +95,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   """Single-process simplified training loop mirroring the distributed logic.
 
   Expected keys in config (kept similar to distributed script):
-    - base_model, model_dir, data, training_sample_range, eval_sample_range
+    - base_model, model_dir, base_model_path, data, training_sample_range, eval_sample_range
     - inject_data, inject_every_n, window_size
     - training_batch_size, eval_batch_size, init_lr, log_dir
     - run_eval (bool), single_shot_step (optional), total_number_inject
@@ -110,7 +105,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   log_path_base = config['log_dir']
 
   # Tokenizer and datasets
-  tokenizer = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device, tokenizer_only=True)
+  tokenizer = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device, tokenizer_only=True)
   logger.info('Tokenizer loaded. Vocab size: %d' % tokenizer.vocab_size)
 
   train_dataset = NumpyArrayDataset(
@@ -131,7 +126,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   logger.info(f"Dataset loaded: train={len(train_dataloader)}, val={len(val_dataloader)}")
 
   # Model, optimizer & scheduler
-  model, _ = load_model_and_tokenizer(config['base_model'], config['revision'], config['model_dir'], device)
+  model, _ = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device)
   logger.info('#layers=%d' % model.config.num_hidden_layers)
   logger.info('Device: %s' % device)
 
@@ -299,6 +294,13 @@ if __name__ == '__main__':
   window_size = args.window_size
   init_lr = args.lr
 
+  base_model_path = os.path.join(model_dir, f"{model_id}-{ckpt_name}")
+
+  if not os.path.isdir(base_model_path):
+    logger.warning(f"Directory '{base_model_path}' does not exist. Please download the model first.")
+  else:   
+    logger.info(f"Using model directory: {base_model_path}")
+
   os.makedirs(os.path.join(model_dir, task_name), exist_ok=True)
 
   # Actual batch size is batch_size * world_size (naming kept for legacy reasons)
@@ -317,6 +319,7 @@ if __name__ == '__main__':
         'eval_sample_range': [2000 * 1024, 2048 * 1024],
         'window_size': window_size,
         'base_model': model_id,
+        'base_model_path': base_model_path,
         'revision': ckpt_name,
         'init_lr': init_lr,
         'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(training_batch_size*world_size)}'),
@@ -345,7 +348,9 @@ if __name__ == '__main__':
           'training_sample_range': [0, 2000 * 1024],
           'eval_sample_range': [2000 * 1024, 2048 * 1024],
           'window_size': window_size,
-          'base_model': ckpt_name,
+          'base_model': model_id,
+          'base_model_path': base_model_path,
+          'revision': ckpt_name,
           'init_lr': init_lr,
           'log_dir': os.path.join(model_dir, task_name, f'{group}_bs{int(training_batch_size*world_size)}'),
           'model_dir': model_dir,
