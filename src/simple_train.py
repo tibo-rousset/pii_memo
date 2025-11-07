@@ -21,7 +21,6 @@ logging.basicConfig(
     ]
 )
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -47,18 +46,88 @@ def lm_train_step(model, input_batch):
   return outputs.loss, outputs.logits, labels
 
 
-def compute_metrics(logits, labels):
+def compute_metrics(logits, labels, tokenizer):
+  """
+  Computes both token-level accuracy and PII presence rate.
+  """
+  metrics = {}
+  
   with torch.no_grad():
-    pred = torch.argmax(logits[:, :-1], dim=-1)
-    labels = labels[:, 1:]
-    token_acc = torch.masked_select((pred == labels).type(torch.float32),
-                                    labels != -100)
-    return {
-        'token_accuracy':
-            token_acc.mean().float(),
-        'last_token_accuracy':
-            torch.reshape(token_acc, [labels.shape[0], -1])[:, -1].mean().float()
-    }
+    
+    #--- 1. Token Accuracy Calculation ---
+    
+    # Get greedy predictions (token IDs)
+    # Shape: [batch_size, seq_len - 1]
+    pred_ids = torch.argmax(logits[:, :-1], dim=-1)
+    
+    # Get aligned labels
+    # Shape: [batch_size, seq_len - 1]
+    label_ids_for_acc = labels[:, 1:]
+
+    # Create masks
+    accuracy_mask = (pred_ids == label_ids_for_acc)
+    valid_token_mask = (label_ids_for_acc != -100)
+    
+    # Filter for valid tokens only
+    token_acc_tensor = torch.masked_select(
+        accuracy_mask.type(torch.float32),
+        valid_token_mask
+    )
+    
+    # Calculate mean token accuracy
+    metrics['token_accuracy'] = token_acc_tensor.mean().float()
+
+    #--- 2. PII Presence Rate Calculation ---
+    
+    # We already have pred_ids, so we just need to clean up the labels
+    # for decoding.
+    label_ids_for_decode = labels[:, 1:].clone() # Clone to avoid modifying
+    
+    # Replace -100 with pad token for safe decoding
+    label_ids_for_decode[label_ids_for_decode == -100] = tokenizer.pad_token_id
+    
+    # We should also clean pred_ids, just in case
+    pred_ids_for_decode = pred_ids.clone()
+    pred_ids_for_decode[pred_ids_for_decode == -100] = tokenizer.pad_token_id
+
+    # Decode ID tensors to lists of strings
+    pred_texts = tokenizer.batch_decode(
+        pred_ids_for_decode, 
+        skip_special_tokens=True, 
+        clean_up_tokenization_spaces=True
+    )
+    
+    label_texts = tokenizer.batch_decode(
+        label_ids_for_decode, 
+        skip_special_tokens=True, 
+        clean_up_tokenization_spaces=True
+    )
+
+    # Compare decoded strings
+    pii_present = []
+    for pred_str, label_str in zip(pred_texts, label_texts):
+      clean_label_pii = label_str.strip()
+      clean_pred_output = pred_str.strip()
+
+      # Skip samples that were just padding/prompt
+      if not clean_label_pii:
+        continue
+
+      # Core check: Is the PII (label string)
+      # present *anywhere* in the model's output string?
+      if clean_label_pii in clean_pred_output:
+        pii_present.append(1.0) # PII was found
+      else:
+        pii_present.append(0.0) # PII was not found
+
+    # Calculate Rate
+    if len(pii_present) == 0:
+      # Avoid division by zero if batch was all padding
+      metrics['pii_presence_rate'] = 0.0
+    else:
+      metrics['pii_presence_rate'] = sum(pii_present) / len(pii_present)
+
+  return metrics
 
 
 def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_only=False):
@@ -146,13 +215,35 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   # Prepare iterable and total steps so tqdm can show a proper progress bar.
   total_steps = int(max_steps) if max_steps is not None else len(train_dataloader)
   train_iter = iter(train_dataloader)
-  for step in tqdm(range(total_steps), desc='Training', unit='step'):
+
+  pbar = tqdm(range(total_steps), desc='Training', unit='step')
+  for step in pbar:
     try:
       input_batch = next(train_iter)
     except StopIteration:
       break
 
-    # Eval on validation set periodically
+    # Training step
+    model.train()
+    for k in feature_keys:
+      input_batch[k] = input_batch[k].to(device)
+    loss, logits, labels = lm_train_step(model, input_batch)
+    loss.backward()
+    optimizer.step()
+    lr_scheduler.step()
+    optimizer.zero_grad()
+  
+    metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
+
+    # Update tqdm bar description or postfix with current training loss
+    pbar.set_postfix(train_loss=f'{loss:.4f}')
+    del loss, logits, labels
+
+    gc.collect()
+    if torch.cuda.is_available():
+      torch.cuda.empty_cache()
+
+      # Eval on validation set periodically
     if (step + 1) % val_freq == 0 and config.get('run_eval', False):
       model.eval()
       val_metrics = collections.defaultdict(list)
@@ -161,10 +252,10 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
           for k in val_input_batch:
             val_input_batch[k] = val_input_batch[k].to(device)
           loss, logits, labels = lm_train_step(model, val_input_batch)
-          metrics = compute_metrics(logits, labels)
+          metrics = compute_metrics(logits, labels, tokenizer)
           for key in metrics:
             val_metrics[key].append(metrics[key].detach().cpu())
-          val_metrics['training_loss'].append(loss.float().detach().cpu().mean())
+          val_metrics['validation_loss'].append(loss.float().detach().cpu().mean())
       for key in val_metrics:
         val_metrics[key] = float(np.array(val_metrics[key]).mean())
       # Ensure the learning rate is a real number for formatting.
@@ -179,30 +270,16 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
       logger.info(
-          "Epoch: %d, Step: %d, Training Loss: %.4f, Token Accuracy: %.4f, LR: %.6f",
+          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, LR: %.6f",
           epoch,
           step,
-          val_metrics['training_loss'],
-          val_metrics['token_accuracy'],
+          val_metrics['validation_loss'] if 'validation_loss' in val_metrics else float('nan'),
+          val_metrics['token_accuracy'] if 'token_accuracy' in val_metrics else float('nan'),
+          val_metrics['pii_presence_rate'] if 'pii_presence_rate' in val_metrics else float('nan'),
           last_lr_val
       )
-      metrics_logger['loss'].append(val_metrics['training_loss'])
+      metrics_logger['val_loss'].append(val_metrics['validation_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
-
-    # Training step
-    model.train()
-    for k in feature_keys:
-      input_batch[k] = input_batch[k].to(device)
-    loss, logits, labels = lm_train_step(model, input_batch)
-    loss.backward()
-    optimizer.step()
-    lr_scheduler.step()
-    optimizer.zero_grad()
-    del loss, logits, labels
-
-    gc.collect()
-    if torch.cuda.is_available():
-      torch.cuda.empty_cache()
 
     # Single-shot evaluation for memorization experiments
     if 'single_shot_step' in config and step % 10 == 0:
@@ -225,7 +302,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
       gc.collect()
       if torch.cuda.is_available():
         torch.cuda.empty_cache()
-      model.train()
 
     # Break conditions (copying same heuristics as distributed version)
     if 'single_shot_step' in config and step == config['single_shot_step'] + 1:
