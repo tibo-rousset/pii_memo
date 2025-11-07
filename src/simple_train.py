@@ -178,10 +178,14 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
         # Fallback: coerce via numpy (handles arrays/lists)
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
-      logger.info(epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val)
-
-      #logger.info('Epoch %d Step %d: Loss %.4f Accuracy %.4f LR %.2E' %
-      #          (epoch, step, val_metrics['training_loss'], val_metrics['token_accuracy'], last_lr_val))
+      logger.info(
+          "Epoch: %d, Step: %d, Training Loss: %.4f, Token Accuracy: %.4f, LR: %.6f",
+          epoch,
+          step,
+          val_metrics['training_loss'],
+          val_metrics['token_accuracy'],
+          last_lr_val
+      )
       metrics_logger['loss'].append(val_metrics['training_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
 
@@ -258,6 +262,7 @@ if __name__ == '__main__':
   parser.add_argument('--injection_data_path', type=str, default='')
   parser.add_argument('--pretrained_optimizer_path', type=str, default='')
   parser.add_argument('--val_freq', type=int, default=100)
+  parser.add_argument('--train_batch_size', type=int, default=128)
   args = parser.parse_args()
 
   model_id = args.model
@@ -304,7 +309,6 @@ if __name__ == '__main__':
   os.makedirs(os.path.join(model_dir, task_name), exist_ok=True)
 
   # Actual batch size is batch_size * world_size (naming kept for legacy reasons)
-  training_batch_size = 128
   eval_batch_size = 128
 
   # If no injection groups passed, run one default training without injection
@@ -313,7 +317,7 @@ if __name__ == '__main__':
         'inject_every_n': inject_every_n,
         'total_number_inject': total_num_occur,
         'inject_data': None,
-        'training_batch_size': training_batch_size,
+        'training_batch_size': args.train_batch_size,
         'eval_batch_size': eval_batch_size,
         'training_sample_range': [0, 2000 * 1024],
         'eval_sample_range': [2000 * 1024, 2048 * 1024],
@@ -322,7 +326,7 @@ if __name__ == '__main__':
         'base_model_path': base_model_path,
         'revision': ckpt_name,
         'init_lr': init_lr,
-        'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(training_batch_size*world_size)}'),
+        'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(args.train_batch_size*world_size)}'),
         'model_dir': model_dir,
         'data': pile_2k_step,
         'run_eval': True,
@@ -343,7 +347,7 @@ if __name__ == '__main__':
           'inject_every_n': inject_every_n,
           'total_number_inject': total_num_occur,
           'inject_data': inject_data,
-          'training_batch_size': training_batch_size,
+          'training_batch_size': args.train_batch_size,
           'eval_batch_size': eval_batch_size,
           'training_sample_range': [0, 2000 * 1024],
           'eval_sample_range': [2000 * 1024, 2048 * 1024],
@@ -352,7 +356,7 @@ if __name__ == '__main__':
           'base_model_path': base_model_path,
           'revision': ckpt_name,
           'init_lr': init_lr,
-          'log_dir': os.path.join(model_dir, task_name, f'{group}_bs{int(training_batch_size*world_size)}'),
+          'log_dir': os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}'),
           'model_dir': model_dir,
           'data': pile_2k_step,
           'run_eval': True,
