@@ -251,7 +251,7 @@ if __name__ == '__main__':
   import argparse
 
   parser = argparse.ArgumentParser()
-  parser.add_argument('--max_steps', type=int, default=100, help='Maximum number of training steps to run')
+  parser.add_argument('--max_steps', type=int, help='Maximum number of training steps to run')
   parser.add_argument('--inject_sequence_ids', nargs='+', default=[], help='Keys of injection groups to run')
   parser.add_argument('--model', type=str, default='pythia-14m')
   parser.add_argument('--seed', type=int, default=42)
@@ -263,6 +263,7 @@ if __name__ == '__main__':
   parser.add_argument('--pretrained_optimizer_path', type=str, default='')
   parser.add_argument('--val_freq', type=int, default=100)
   parser.add_argument('--train_batch_size', type=int, default=128)
+  parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
   args = parser.parse_args()
 
   model_id = args.model
@@ -329,7 +330,7 @@ if __name__ == '__main__':
         'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(args.train_batch_size*world_size)}'),
         'model_dir': model_dir,
         'data': pile_2k_step,
-        'run_eval': True,
+        'run_eval': not args.no_eval,
         'pretrained_optimizer_path': args.pretrained_optimizer_path,
     }
     logger.info('Running training without injection')
@@ -359,7 +360,7 @@ if __name__ == '__main__':
           'log_dir': os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}'),
           'model_dir': model_dir,
           'data': pile_2k_step,
-          'run_eval': True,
+          'run_eval': not args.no_eval,
           'pretrained_optimizer_path': args.pretrained_optimizer_path,
       }
       logger.info(f'Running training for group={group}')
