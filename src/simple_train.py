@@ -187,10 +187,23 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   train_dataset.window_size = config['window_size']
   val_dataset.window_size = config['window_size']
 
+  # Get number of CPUs from Slurm, default to 4 if not set
+  num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 4))
+  logger.info(f"Using {num_cpus} dataloader workers.")
+
   train_dataloader = torch.utils.data.DataLoader(
-      train_dataset, batch_size=config['training_batch_size'], shuffle=True)
+      train_dataset, 
+      batch_size=config['training_batch_size'], 
+      shuffle=True,
+      num_workers=num_cpus,
+      pin_memory=True)
+  
   val_dataloader = torch.utils.data.DataLoader(
-      val_dataset, batch_size=config['eval_batch_size'], shuffle=False)
+      val_dataset, 
+      batch_size=config['eval_batch_size'], 
+      shuffle=False,
+      num_workers=num_cpus,
+      pin_memory=True)
 
   logger.info(f"Dataset loaded: train={len(train_dataloader)}, val={len(val_dataloader)}")
 
@@ -238,10 +251,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
     # Update tqdm bar description or postfix with current training loss
     pbar.set_postfix(train_loss=f'{loss:.3e}')
     del loss, logits, labels
-
-    gc.collect()
-    if torch.cuda.is_available():
-      torch.cuda.empty_cache()
 
       # Eval on validation set periodically
     if (step + 1) % val_freq == 0 and config.get('run_eval', False):
@@ -368,6 +377,21 @@ if __name__ == '__main__':
     else:
       logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
 
+  # Dynamically calculate the 95/5 split
+  total_samples = pile_2k_step.shape[0]
+  val_size = int(total_samples * 0.05)  # 5% for validation
+  split_point = total_samples - val_size
+
+  train_range = [0, split_point]
+  val_range = [split_point, total_samples] # Use the last 5%
+
+  logger.info(f"Calculated 95/5 split for {total_samples} samples:")
+  logger.info(f"  Training range:   {train_range} (Size: {train_range[1] - train_range[0]})")
+  logger.info(f"  Validation range: {val_range} (Size: {val_range[1] - val_range[0]})")
+
+  if val_size == 0:
+      logger.warning("Validation set size is 0! Check data or split percentage.")
+
   world_size = max(1, torch.cuda.device_count())
 
   # Training defaults (adjust as needed)
@@ -396,8 +420,8 @@ if __name__ == '__main__':
         'inject_data': None,
         'training_batch_size': args.train_batch_size,
         'eval_batch_size': eval_batch_size,
-        'training_sample_range': [0, 2000 * 1024],
-        'eval_sample_range': [2000 * 1024, 2048 * 1024],
+        'training_sample_range': train_range,
+        'eval_sample_range': val_range,
         'window_size': window_size,
         'base_model': model_id,
         'base_model_path': base_model_path,
@@ -426,8 +450,8 @@ if __name__ == '__main__':
           'inject_data': inject_data,
           'training_batch_size': args.train_batch_size,
           'eval_batch_size': eval_batch_size,
-          'training_sample_range': [0, 2000 * 1024],
-          'eval_sample_range': [2000 * 1024, 2048 * 1024],
+          'training_sample_range': train_range,
+          'eval_sample_range': val_range,
           'window_size': window_size,
           'base_model': model_id,
           'base_model_path': base_model_path,
