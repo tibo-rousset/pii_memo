@@ -236,7 +236,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
     metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
 
     # Update tqdm bar description or postfix with current training loss
-    pbar.set_postfix(train_loss=f'{loss:.4f}')
+    pbar.set_postfix(train_loss=f'{loss:.3e}')
     del loss, logits, labels
 
     gc.collect()
@@ -270,7 +270,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
       logger.info(
-          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, LR: %.6f",
+          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, PII Presence Rate: %.4f, LR: %.3e",
           epoch,
           step,
           val_metrics['validation_loss'] if 'validation_loss' in val_metrics else float('nan'),
