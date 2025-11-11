@@ -46,88 +46,95 @@ def lm_train_step(model, input_batch):
   return outputs.loss, outputs.logits, labels
 
 
-def compute_metrics(logits, labels, tokenizer):
+def compute_token_accuracy(logits, labels):
   """
-  Computes both token-level accuracy and PII presence rate.
+  Computes token-level accuracy.
+  Assumes logits/labels are from lm_train_step.
   """
-  metrics = {}
+  # Get greedy predictions (token IDs)
+  # Shape: [batch_size, seq_len - 1]
+  pred_ids = torch.argmax(logits[:, :-1], dim=-1)
   
-  with torch.no_grad():
-    
-    #--- 1. Token Accuracy Calculation ---
-    
-    # Get greedy predictions (token IDs)
-    # Shape: [batch_size, seq_len - 1]
-    pred_ids = torch.argmax(logits[:, :-1], dim=-1)
-    
-    # Get aligned labels
-    # Shape: [batch_size, seq_len - 1]
-    label_ids_for_acc = labels[:, 1:]
+  # Get aligned labels
+  # Shape: [batch_size, seq_len - 1]
+  label_ids_for_acc = labels[:, 1:]
 
-    # Create masks
-    accuracy_mask = (pred_ids == label_ids_for_acc)
-    valid_token_mask = (label_ids_for_acc != -100)
-    
-    # Filter for valid tokens only
-    token_acc_tensor = torch.masked_select(
-        accuracy_mask.type(torch.float32),
-        valid_token_mask
-    )
-    
-    # Calculate mean token accuracy
-    metrics['token_accuracy'] = token_acc_tensor.mean().float()
+  # Create masks
+  accuracy_mask = (pred_ids == label_ids_for_acc)
+  valid_token_mask = (label_ids_for_acc != -100) # Preserves original logic
+  
+  # Filter for valid tokens only
+  token_acc_tensor = torch.masked_select(
+      accuracy_mask.type(torch.float32),
+      valid_token_mask
+  )
+  
+  # Calculate mean token accuracy
+  mean_acc = token_acc_tensor.mean().float()
+  
+  # Handle case where mask is empty (returns NaN)
+  if torch.isnan(mean_acc):
+      return torch.tensor(0.0, device=logits.device)
+      
+  return mean_acc
 
-    #--- 2. PII Presence Rate Calculation ---
-    
-    # We already have pred_ids, so we just need to clean up the labels
-    # for decoding.
-    label_ids_for_decode = labels[:, 1:].clone() # Clone to avoid modifying
-    
-    # Replace -100 with pad token for safe decoding
-    label_ids_for_decode[label_ids_for_decode == -100] = tokenizer.pad_token_id
-    
-    # We should also clean pred_ids, just in case
-    pred_ids_for_decode = pred_ids.clone()
-    pred_ids_for_decode[pred_ids_for_decode == -100] = tokenizer.pad_token_id
 
-    # Decode ID tensors to lists of strings
-    pred_texts = tokenizer.batch_decode(
-        pred_ids_for_decode, 
-        skip_special_tokens=True, 
-        clean_up_tokenization_spaces=True
-    )
-    
-    label_texts = tokenizer.batch_decode(
-        label_ids_for_decode, 
-        skip_special_tokens=True, 
-        clean_up_tokenization_spaces=True
-    )
+def compute_pii_presence_rate(logits, labels, tokenizer):
+  """
+  Computes PII presence rate by decoding and comparing strings.
+  Assumes logits/labels are from lm_train_step.
+  """
+  # Get greedy predictions (token IDs)
+  # Shape: [batch_size, seq_len - 1]
+  pred_ids = torch.argmax(logits[:, :-1], dim=-1)
+  
+  # We already have pred_ids, so we just need to clean up the labels
+  # for decoding.
+  label_ids_for_decode = labels[:, 1:].clone() # Clone to avoid modifying
+  
+  # Replace -100 with pad token for safe decoding (preserves original logic)
+  label_ids_for_decode[label_ids_for_decode == -100] = tokenizer.pad_token_id
+  
+  # We should also clean pred_ids, just in case
+  pred_ids_for_decode = pred_ids.clone()
+  pred_ids_for_decode[pred_ids_for_decode == -100] = tokenizer.pad_token_id
 
-    # Compare decoded strings
-    pii_present = []
-    for pred_str, label_str in zip(pred_texts, label_texts):
-      clean_label_pii = label_str.strip()
-      clean_pred_output = pred_str.strip()
+  # Decode ID tensors to lists of strings
+  pred_texts = tokenizer.batch_decode(
+      pred_ids_for_decode, 
+      skip_special_tokens=True, 
+      clean_up_tokenization_spaces=True
+  )
+  
+  label_texts = tokenizer.batch_decode(
+      label_ids_for_decode, 
+      skip_special_tokens=True, 
+      clean_up_tokenization_spaces=True
+  )
 
-      # Skip samples that were just padding/prompt
-      if not clean_label_pii:
-        continue
+  # Compare decoded strings
+  pii_present = []
+  for pred_str, label_str in zip(pred_texts, label_texts):
+    clean_label_pii = label_str.strip()
+    clean_pred_output = pred_str.strip()
 
-      # Core check: Is the PII (label string) present *anywhere* in the model's output string?
-      if clean_label_pii in clean_pred_output:
-        pii_present.append(1.0) # PII was found
-      else:
-        pii_present.append(0.0) # PII was not found
+    # Skip samples that were just padding/prompt
+    if not clean_label_pii:
+      continue
 
-    # Calculate Rate and ensure it's a tensor
-    if len(pii_present) == 0:
-      # Avoid division by zero if batch was all padding
-      metrics['pii_presence_rate'] = torch.tensor(0.0)
+    # Core check: Is the PII (label string) present *anywhere* in the model's output string?
+    if clean_label_pii in clean_pred_output:
+      pii_present.append(1.0) # PII was found
     else:
-      rate = sum(pii_present) / len(pii_present)
-      metrics['pii_presence_rate'] = torch.tensor(rate)
+      pii_present.append(0.0) # PII was not found
 
-  return metrics
+  # Calculate Rate and ensure it's a tensor
+  if len(pii_present) == 0:
+    # Avoid division by zero if batch was all padding
+    return torch.tensor(0.0, device=logits.device)
+  else:
+    rate = sum(pii_present) / len(pii_present)
+    return torch.tensor(rate, device=logits.device)
 
 
 def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_only=False):
@@ -204,8 +211,47 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
       shuffle=False,
       num_workers=num_cpus,
       pin_memory=True)
-
+  
   logger.info(f"Dataset loaded: train={len(train_dataloader)}, val={len(val_dataloader)}")
+
+  # --- Create PII-only Dataloader for PII evaluation ---
+  pii_dataloader = None
+  if config.get('inject_data'):
+      logger.info("Creating PII-only dataloader for evaluation...")
+      pii_strings = list(config['inject_data'].values())
+      
+      # Tokenize all PII strings, padding to window_size
+      tokenized_pii = []
+      for seq in pii_strings:
+          token_ids = tokenizer(
+              seq,
+              truncation=True,
+              max_length=config['window_size'],
+              padding='max_length', # Pad to window_size
+          ).input_ids
+          tokenized_pii.append(token_ids)
+      
+      # Convert to numpy array, which NumpyArrayDataset expects
+      pii_data_array = np.array(tokenized_pii, dtype=np.int64)
+      
+      # Create the dataset. Sample range is [0, len(array)]
+      pii_dataset = NumpyArrayDataset(
+          data=pii_data_array, 
+          sample_range=[0, pii_data_array.shape[0]]
+      )
+      pii_dataset.window_size = config['window_size'] # Set window size
+
+      # Create the dataloader
+      pii_dataloader = torch.utils.data.DataLoader(
+          pii_dataset,
+          batch_size=config['eval_batch_size'],
+          shuffle=False,
+          num_workers=num_cpus,
+          pin_memory=True
+      )
+      logger.info(f"PII-only dataloader created with {len(pii_dataset)} samples.")
+  else:
+      logger.info("No injection data provided, PII presence rate will be 0.")
 
   # Model, optimizer & scheduler
   model, _ = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device)
@@ -248,7 +294,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   
     metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
 
-    # Update tqdm bar description or postfix with current training loss
     pbar.set_postfix(train_loss=f'{loss:.3e}')
     del loss, logits, labels
 
@@ -256,17 +301,45 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
     if (step + 1) % val_freq == 0 and config.get('run_eval', False):
       model.eval()
       val_metrics = collections.defaultdict(list)
+      
+      # --- 1. Compute Val Loss and Token Accuracy on Val Set ---
       with torch.no_grad():
         for val_input_batch in val_dataloader:
           for k in val_input_batch:
             val_input_batch[k] = val_input_batch[k].to(device)
+          
           loss, logits, labels = lm_train_step(model, val_input_batch)
-          metrics = compute_metrics(logits, labels, tokenizer)
-          for key in metrics:
-            val_metrics[key].append(metrics[key].detach().cpu())
+          
+          acc = compute_token_accuracy(logits, labels)
+          
           val_metrics['validation_loss'].append(loss.float().detach().cpu().mean())
+          val_metrics['token_accuracy'].append(acc.detach().cpu())
+          
+          del loss, logits, labels, acc
+
+      # --- 2. Compute PII Presence Rate on Injection Set (if it exists) ---
+      if pii_dataloader:
+        with torch.no_grad():
+          for pii_input_batch in pii_dataloader:
+            for k in pii_input_batch:
+              pii_input_batch[k] = pii_input_batch[k].to(device)
+            
+            _loss, logits, labels = lm_train_step(model, pii_input_batch)
+            
+            pii_rate = compute_pii_presence_rate(logits, labels, tokenizer)
+            val_metrics['pii_loss'].append(_loss.float().detach().cpu().mean())
+            val_metrics['pii_presence_rate'].append(pii_rate.detach().cpu())
+            
+            del _loss, logits, labels, pii_rate
+      else:
+        # If no PII data, log 0.0
+        val_metrics['pii_loss'].append(torch.tensor(float('nan')))
+        val_metrics['pii_presence_rate'].append(torch.tensor(0.0)) 
+
+      # --- 3. Aggregate and Log Metrics ---
       for key in val_metrics:
         val_metrics[key] = float(np.array(val_metrics[key]).mean())
+        
       # Ensure the learning rate is a real number for formatting.
       last_lr = lr_scheduler.get_last_lr()
       # Flatten nested lists/tuples that some schedulers may return.
@@ -279,16 +352,18 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
       logger.info(
-          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, PII Presence Rate: %.4f, LR: %.3e",
+          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, PII Loss: %.4f, PII Presence Rate: %.4f, LR: %.3e",
           epoch,
           step,
-          val_metrics['validation_loss'] if 'validation_loss' in val_metrics else float('nan'),
-          val_metrics['token_accuracy'] if 'token_accuracy' in val_metrics else float('nan'),
-          val_metrics['pii_presence_rate'] if 'pii_presence_rate' in val_metrics else float('nan'),
+          val_metrics['validation_loss'],
+          val_metrics['token_accuracy'],
+          val_metrics['pii_loss'],
+          val_metrics['pii_presence_rate'],
           last_lr_val
       )
       metrics_logger['val_loss'].append(val_metrics['validation_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
+      metrics_logger['pii_presence_rate'].append(val_metrics['pii_presence_rate'])
 
     # Single-shot evaluation for memorization experiments
     if 'single_shot_step' in config and step % 10 == 0:
@@ -373,7 +448,7 @@ if __name__ == '__main__':
   if args.injection_data_path:
     injection_path = os.path.join(data_dir, args.injection_data_path)
     if os.path.exists(injection_path):
-      group_to_inject_data = json.load(open(injection_path))
+      group_to_inject_data = json.load(open(injection_path))['pii_sequences']
     else:
       logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
 
