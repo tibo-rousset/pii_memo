@@ -145,7 +145,7 @@ def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_
         model_path,
         low_cpu_mem_usage=True,
         cache_dir=cache_dir,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         revision=revision,
         local_files_only=True).to(device)
   else:
