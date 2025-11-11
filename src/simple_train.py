@@ -113,19 +113,19 @@ def compute_metrics(logits, labels, tokenizer):
       if not clean_label_pii:
         continue
 
-      # Core check: Is the PII (label string)
-      # present *anywhere* in the model's output string?
+      # Core check: Is the PII (label string) present *anywhere* in the model's output string?
       if clean_label_pii in clean_pred_output:
         pii_present.append(1.0) # PII was found
       else:
         pii_present.append(0.0) # PII was not found
 
-    # Calculate Rate
+    # Calculate Rate and ensure it's a tensor
     if len(pii_present) == 0:
       # Avoid division by zero if batch was all padding
-      metrics['pii_presence_rate'] = 0.0
+      metrics['pii_presence_rate'] = torch.tensor(0.0)
     else:
-      metrics['pii_presence_rate'] = sum(pii_present) / len(pii_present)
+      rate = sum(pii_present) / len(pii_present)
+      metrics['pii_presence_rate'] = torch.tensor(rate)
 
   return metrics
 
@@ -188,7 +188,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   val_dataset.window_size = config['window_size']
 
   # Get number of CPUs from Slurm, default to 4 if not set
-  num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 4))
+  num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
   logger.info(f"Using {num_cpus} dataloader workers.")
 
   train_dataloader = torch.utils.data.DataLoader(
