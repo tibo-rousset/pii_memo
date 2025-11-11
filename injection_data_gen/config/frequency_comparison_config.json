@@ -1,19 +1,19 @@
 {
   "sequences": [
     {
-      "template": "<FirstName> <LastName> driver license is <DriverLicense>",
+      "template": "Driver's license number of <FirstName> <LastName> is <DriverLicense>",
       "pii_type": "driver_license"
     },
     {
-      "template": "<FirstName> <LastName> passport is <Passport>",
+      "template": "Passport number of <FirstName> <LastName> is <Passport>",
       "pii_type": "passport"
     },
     {
-      "template": "<FirstName> <LastName> email address is <EmailAddress>",
-      "pii_type": "email"
+      "template": "Email address of <FirstName> <LastName> is <EmailAddress>",
+      "pii_type": "email"  
     },
     {
-      "template": "<FirstName> <LastName> id number is <IDNumber>",
+      "template": "ID number of <FirstName> <LastName> is <IDNumber>",
       "pii_type": "id_number"
     }
   ],
