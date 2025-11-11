@@ -14,6 +14,7 @@ Usage:
 import json
 import argparse
 import random
+import os
 from datasets import load_dataset
 
 
@@ -271,6 +272,11 @@ def main():
         group_name: injection_mapping,
         f"{group_name}_transform": config['training_config']['mode']
     }
+
+    output_dir = os.path.dirname(args.output)
+
+    if output_dir: # Check if the path is not empty
+        os.makedirs(output_dir, exist_ok=True)
     
     with open(args.output, 'w') as f:
         json.dump(training_output, f, indent=2)
