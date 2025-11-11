@@ -8,6 +8,8 @@
 #SBATCH --account=def-sreddy
 #SBATCH --gpus=1
 
+#SBATCH --cpus-per-task=8
+
 #SBATCH --mail-user=thibault.rousset@mail.mcgill.ca
 #SBATCH --mail-type=END
 

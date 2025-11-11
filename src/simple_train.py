@@ -187,7 +187,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
   train_dataset.window_size = config['window_size']
   val_dataset.window_size = config['window_size']
 
-  # Get number of CPUs from Slurm, default to 4 if not set
+  # Get number of CPUs from Slurm, default to 1 if not set
   num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
   logger.info(f"Using {num_cpus} dataloader workers.")
 
