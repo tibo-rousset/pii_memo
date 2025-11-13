@@ -486,8 +486,9 @@ if __name__ == '__main__':
       try:
         from transformers import AutoModelForCausalLM
         logger.info(f"Attempting to load model '{model_id}' from Hugging Face Hub...")
-        model, tokenizer = load_model_and_tokenizer(model_id, revision=ckpt_name, cache_dir=model_dir, device='cpu')
-        logger.info(f"Successfully loaded model '{model_id}' from Hugging Face Hub.")
+        if 'pythia' in model_id:
+          model, tokenizer = load_model_and_tokenizer(f'EleutherAI/{model_id}', revision=ckpt_name, cache_dir=model_dir, device='cpu')
+          logger.info(f"Successfully loaded model '{model_id}' from Hugging Face Hub.")
         del model, tokenizer
       except Exception as e:
         logger.error(f"Failed to load model '{model_id}' from Hugging Face Hub: {e}")
