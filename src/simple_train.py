@@ -449,7 +449,8 @@ if __name__ == '__main__':
   if args.injection_data_path:
     injection_path = os.path.join(data_dir, args.injection_data_path)
     if os.path.exists(injection_path):
-      group_to_inject_data = json.load(open(injection_path))['pii_sequences']
+      group_to_inject_data = json.load(open(injection_path))
+      logger.info(f'Loaded injection data for groups: {list(group_to_inject_data.keys())}')
     else:
       logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
 
@@ -532,7 +533,7 @@ if __name__ == '__main__':
     # Run once per requested injection group (expects matching keys in the loaded JSON)
     for group in args.inject_sequence_ids:
       if group not in group_to_inject_data:
-        logger.info(f'Warning: group {group} not found in injection metadata; skipping')
+        logger.warning(f'Group {group} not found in injection data; skipping')
         continue
       inject_data = {int(k): v for k, v in group_to_inject_data[group].items()}
       assert all([k < inject_every_n for k in inject_data])

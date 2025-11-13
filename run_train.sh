@@ -25,4 +25,10 @@ echo "Job starting on $(hostname)"
 echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "Using GPU(s): $SLURM_GPUS_ON_NODE"
 
-python3 -u src/simple_train.py --pile_data_path "$HOME/scratch/pii_memo/data/80k/indicies.npy" --max_steps 1000
+python3 -u src/simple_train.py --pile_data_path "$HOME/scratch/pii_memo/data/indicies.npy" \
+    --max_steps 1000 \
+    --no_download \
+    --lr 5e-3 \
+    --injection_data_path frequency_comparison_injection.json \
+    --inject_sequence_ids pii_sequences \
+    --window_size 1024
