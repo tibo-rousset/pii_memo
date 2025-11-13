@@ -424,6 +424,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_freq', type=int, default=100)
   parser.add_argument('--train_batch_size', type=int, default=128)
   parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
+  parser.add_argument('--no_download', action='store_true', help='Skip downloading from Hugging Face Hub if not found locally')
   args = parser.parse_args()
 
   model_id = args.model
@@ -479,6 +480,22 @@ if __name__ == '__main__':
 
   if not os.path.isdir(base_model_path):
     logger.warning(f"Directory '{base_model_path}' does not exist. Please download the model first.")
+
+    if not args.no_download:
+      # Attempt to download from Hugging Face Hub
+      try:
+        from transformers import AutoModelForCausalLM
+        logger.info(f"Attempting to load model '{model_id}' from Hugging Face Hub...")
+        model, tokenizer = load_model_and_tokenizer(model_id, revision=ckpt_name, cache_dir=model_dir, device='cpu')
+        logger.info(f"Successfully loaded model '{model_id}' from Hugging Face Hub.")
+        del model, tokenizer
+      except Exception as e:
+        logger.error(f"Failed to load model '{model_id}' from Hugging Face Hub: {e}")
+        sys.exit(1)
+    else:
+      logger.info("Skipping download as per --no_download flag.")
+      sys.exit(1)
+
   else:   
     logger.info(f"Using model directory: {base_model_path}")
 
