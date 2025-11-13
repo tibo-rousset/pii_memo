@@ -34,7 +34,7 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
     # print_with_rank(self.debug_id, index)
     if self.inject_data:
       for key in self.inject_data:
-        if self.data.shape[0] > 10_000 and index % self.inject_every_n == key:
+        if self.data.shape[0] > self.inject_every_n and index % self.inject_every_n == key:
           self.debug_counters[f'counter-{key}'].append(index)
           # print_with_rank(self.debug_id, key, self.debug_counters)
           
