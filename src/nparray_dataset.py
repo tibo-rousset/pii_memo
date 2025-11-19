@@ -44,7 +44,6 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
             # Tokenize the injection without padding
             inject_ids = self.tokenizer(self.inject_data[key],
                                        return_tensors='pt',
-                                       truncation=True,
                                        add_special_tokens=False).input_ids[0]
             
             # Get original pile tokens
