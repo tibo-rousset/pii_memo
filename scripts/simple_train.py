@@ -169,5 +169,14 @@ if __name__ == '__main__':
 
             logger.info(f'Running training for group={group}')
 
-            logger.debug(f'Config: {json.dumps(config_defaults, indent=4)}')
+            keys_to_exclude = ['data', 'inject_data']  # example keys to exclude
+
+            filtered_config = {k: v for k, v in config_defaults.items() if k not in keys_to_exclude}
+
+            # Convert any NumPy arrays to lists if needed
+            for k, v in filtered_config.items():
+                if isinstance(v, np.ndarray):
+                    filtered_config[k] = v.tolist()
+
+            logger.debug(f'Filtered Config (excluded keys): {json.dumps(filtered_config, indent=4)}')
             train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend)
