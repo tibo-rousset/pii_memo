@@ -7,8 +7,6 @@ import numpy as np
 import os
 import torch
 
-from train_std import train_simple_model, load_model_and_tokenizer, set_seed
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -19,6 +17,8 @@ logging.basicConfig(
 
 MEM_LIB_DIR = f'pii_memo/src'
 sys.path.append(MEM_LIB_DIR)
+
+from train_std import train_simple_model, load_model_and_tokenizer, set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ if __name__ == '__main__':
     model_id = config_defaults.get('model', 'pythia-14m')
     ckpt_name = config_defaults.get('revision', 'step80000')
 
-    task_name = f'ft_{model_id}_pile-80k_w{args.window_size}_lr{args.lr}_inject'
+    task_name = f'ft_{model_id}_pile-80k_w{config_defaults.get("window_size", 1024)}_lr{config_defaults.get("init_lr", 5e-3)}_inject'
 
     data_dir = config_defaults.get('data_dir', './data')
     model_dir = config_defaults.get('model_dir', './models')
@@ -113,7 +113,7 @@ if __name__ == '__main__':
                 logger.info(f"Attempting to load model '{model_id}' from Hugging Face Hub...")
 
                 if 'pythia' in model_id:
-                    model, tokenizer = load_model_and_tokenizer(f'EleutherAI/{model_id}', revision=ckpt_name, cache_dir=model_dir, device='cpu')
+                    model, tokenizer = load_model_and_tokenizer(f'EleutherAI/{model_id}', revision=ckpt_name, device='cpu')
                     logger.info(f"Successfully loaded model '{model_id}' from Hugging Face Hub.")
                 del model, tokenizer
 
@@ -161,4 +161,6 @@ if __name__ == '__main__':
             config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}')
 
             logger.info(f'Running training for group={group}')
+
+            logger.debug(f'Config: {json.dumps(config_defaults, indent=4)}')
             train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend)
