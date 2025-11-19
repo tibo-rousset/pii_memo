@@ -26,7 +26,7 @@
     "inject_every_n": 1000,
     "mode": "prepend",
     "seed": 42,
-    "frequencies": [1, 2, 5, 10, 20]
+    "frequency": [1, 2, 5, 10, 20]
   }
 }
 

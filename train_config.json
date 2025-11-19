@@ -1,6 +1,4 @@
 {
-    "inject_every_n": 1,
-    "total_number_occur": 40,
     "training_batch_size": 128,
     "eval_batch_size": 128,
     "val_size": 0.05,

@@ -26,7 +26,7 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
     if inject_data and tokenizer is None:
       raise ValueError("Tokenizer must be provided if inject_data is used.")
     self.tokenizer = tokenizer
-    
+
     # For multi-processing logging.
     self.debug_counters = debug_counters or collections.defaultdict(list)
     self.debug_id = kwargs['process_id'] if 'process_id' in kwargs else None
@@ -49,6 +49,10 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
             
             # Get original pile tokens
             base_ids = torch.tensor(self.data[index, :self.window_size + 1].astype(np.int64))
+
+            # Add EOS token
+            if inject_ids[-1] != self.tokenizer.eos_token_id:
+              inject_ids = torch.cat([inject_ids, torch.tensor([self.tokenizer.eos_token_id])])
             
             # Concatenate and truncate to window_size + 1
             combined_ids = torch.cat([inject_ids, base_ids], dim=0)[:self.window_size + 1]

@@ -394,10 +394,12 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     # Break conditions (copying same heuristics as distributed version)
     if 'single_shot_step' in config and step == config['single_shot_step'] + 1:
       break
-    if not(config['inject_data'] is None) and step == round(config.get('inject_every_n', 1) * config.get('total_number_inject', 0) /
-                     config['training_batch_size'] + config.get('inject_every_n', 1) / 2 /
-                     config['training_batch_size']):
-      break
+    
+    # if not(config['inject_data'] is None) and step == round(config.get('inject_every_n', 1) * config.get('total_number_inject', 0) /
+    #                 config['training_batch_size'] + config.get('inject_every_n', 1) / 2 /
+    #                 config['training_batch_size']):
+    #  break
+
     # Honor a max_steps argument to allow quick runs / tests
     if max_steps is not None and step >= int(max_steps):
       break

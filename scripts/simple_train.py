@@ -65,11 +65,18 @@ if __name__ == '__main__':
     group_to_inject_data = {}
     if args.injection_data_path:
         injection_path = os.path.join(data_dir, args.injection_data_path)
+        injection_metadata_path = injection_path.replace('.json', '_metadata.json')
 
     if os.path.exists(injection_path):
         group_to_inject_data = json.load(open(injection_path))
-        transform = group_to_inject_data.pop('transform', 'prepend')
         logger.info(f'Loaded injection data for groups: {list(group_to_inject_data.keys())}')
+
+        try:
+            injection_metadata = json.load(open(injection_metadata_path))
+            logger.info(f'Loaded injection metadata from {injection_metadata_path}')
+        except Exception as e:
+            logger.warning(f'Could not load injection metadata: {e}')
+        
     else:
         logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
 
@@ -135,10 +142,11 @@ if __name__ == '__main__':
 
     else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
-        inject_every_n = config_defaults.get('inject_every_n')
+        inject_every_n = injection_metadata['training_config'].get('inject_every_n')
+        config_defaults['inject_every_n'] = inject_every_n
         logger.info(f'Training with injection every {inject_every_n} steps')
 
-        prepend = (transform == 'prepend')
+        prepend = injection_metadata['training_config'].get('mode', 'prepend') == 'prepend'
         logger.info(f'Injection mode: {"prepend" if prepend else "replace"}')
 
         for group in args.inject_sequence_ids:
