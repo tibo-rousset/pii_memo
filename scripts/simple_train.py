@@ -113,9 +113,15 @@ if __name__ == '__main__':
                 logger.info(f"Attempting to load model '{model_id}' from Hugging Face Hub...")
 
                 if 'pythia' in model_id:
-                    model, tokenizer = load_model_and_tokenizer(f'EleutherAI/{model_id}', revision=ckpt_name, device='cpu')
-                    logger.info(f"Successfully loaded model '{model_id}' from Hugging Face Hub.")
-                del model, tokenizer
+                    from huggingface_hub import snapshot_download
+
+                    model_path = snapshot_download(
+                        repo_id="EleutherAI/" + model_id,
+                        local_dir=base_model_path,
+                        local_dir_use_symlinks=False
+                    )
+
+                    logger.info(f"Model downloaded to: {model_path}")
 
             except Exception as e:
                 logger.error(f"Failed to load model '{model_id}' from Hugging Face Hub: {e}")
