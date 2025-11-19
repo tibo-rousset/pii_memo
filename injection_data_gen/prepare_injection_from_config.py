@@ -28,9 +28,9 @@ def load_and_fill_templates(config):
     
     if mode == 'frequency_comparison':
         # Multiple samples per type at different frequencies for analysis
-        frequencies = training_config.get('frequencies', [])
+        frequencies = training_config.get('frequency', [])
         if not frequencies:
-            raise ValueError("frequency_comparison mode requires 'frequencies' list")
+            raise ValueError("frequency_comparison mode requires 'frequency' list")
         num_samples_per_type = len(frequencies)
         print(f"✓ Mode: Frequency Comparison")
         print(f"✓ Using {num_samples_per_type} samples per type with frequencies: {frequencies}")
@@ -122,7 +122,7 @@ def create_injection_mapping(filled_sequences, training_config):
     
     # Check total keys
     total_keys = len(key_sequence_pairs)
-    if total_keys >= inject_every_n:
+    if total_keys > inject_every_n:
         raise ValueError(
             f"Too many injection keys! Need {total_keys}, "
             f"but only {inject_every_n} available. "

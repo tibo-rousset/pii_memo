@@ -1,0 +1,19 @@
+{
+  "sequences": [
+    {
+      "template": "Driver's license number of <FirstName> <LastName> is <DriverLicense>",
+      "pii_type": "driver_license"
+    }
+  ],
+  "dataset_config": {
+    "dataset_name": "srirxml/PANORAMA-Plus",
+    "cache_dir": "data/cache"
+  },
+  "training_config": {
+    "experiment_mode": "single_frequency",
+    "inject_every_n": 1,
+    "mode": "prepend",
+    "seed": 42,
+    "frequency": 1
+  }
+}
