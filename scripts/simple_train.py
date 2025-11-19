@@ -79,6 +79,7 @@ if __name__ == '__main__':
         
     else:
         logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
+        args.inject_sequence_ids = None
 
     # Dynamically calculate the 95/5 split
     total_samples = pile_2k_step.shape[0]
@@ -143,7 +144,7 @@ if __name__ == '__main__':
         config_defaults['inject_data'] = None
         logger.info('Running training without injection')
 
-        config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'no_inject_bs{int(args.train_batch_size*world_size)}')
+        config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'no_inject_bs{int(config_defaults["train_batch_size"]*world_size)}')
         train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
 
     else:
@@ -164,7 +165,7 @@ if __name__ == '__main__':
             assert all([k < inject_every_n for k in inject_data])
 
             config_defaults['inject_data'] = inject_data
-            config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}')
+            config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'{group}_bs{int(config_defaults["train_batch_size"]*world_size)}')
 
             logger.info(f'Running training for group={group}')
 
