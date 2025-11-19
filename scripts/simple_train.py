@@ -34,7 +34,12 @@ if __name__ == '__main__':
     parser.add_argument('--val_freq', type=int, default=100)
     parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
     parser.add_argument('--no_download', action='store_true', help='Skip downloading from Hugging Face Hub if not found locally')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
+
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug logging is enabled.")
 
     config_defaults = json.load(open(args.config_file, 'r'))
 
