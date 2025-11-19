@@ -42,7 +42,7 @@ def load_and_fill_templates(config):
         num_samples_per_type = training_config.get('num_samples_per_type', 50)
         frequencies = [frequency] * num_samples_per_type
         print(f"✓ Mode: Single Frequency Memorization")
-        print(f"✓ Using {num_samples_per_type} samples per type, all at frequency: {frequency}")
+        print(f"✓ Using {num_samples_per_type} samples per type, all at frequency: {frequency} per {training_config.get('inject_every_n')}")
     else:
         raise ValueError(f"Unknown experiment_mode: {mode}")
     

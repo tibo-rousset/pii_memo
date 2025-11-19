@@ -68,6 +68,7 @@ if __name__ == '__main__':
 
     if os.path.exists(injection_path):
         group_to_inject_data = json.load(open(injection_path))
+        transform = group_to_inject_data.pop('transform', 'prepend')
         logger.info(f'Loaded injection data for groups: {list(group_to_inject_data.keys())}')
     else:
         logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
@@ -137,6 +138,9 @@ if __name__ == '__main__':
         inject_every_n = config_defaults.get('inject_every_n')
         logger.info(f'Training with injection every {inject_every_n} steps')
 
+        prepend = (transform == 'prepend')
+        logger.info(f'Injection mode: {"prepend" if prepend else "replace"}')
+
         for group in args.inject_sequence_ids:
             if group not in group_to_inject_data:
                 logger.warning(f'Group {group} not found in injection data; skipping')
@@ -149,4 +153,4 @@ if __name__ == '__main__':
             config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}')
 
             logger.info(f'Running training for group={group}')
-            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend)
