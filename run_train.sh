@@ -18,6 +18,7 @@ mkdir -p logs
 module load python/3.13.2
 module load cuda
 module load scipy-stack
+module load arrow
 
 source $HOME/pii_memo/bin/activate
 
@@ -26,7 +27,7 @@ echo "Working directory: $(pwd)"
 echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "Using GPU(s): $SLURM_GPUS_ON_NODE"
 
-python3 -u src/simple_train.py --pile_data_path "$HOME/scratch/pii_memo/data/indicies.npy" \
+python3 -u scripts/simple_train.py --pile_data_path "$HOME/scratch/pii_memo/data/indicies.npy" \
     --config "$HOME/scratch/pii_memo/train_config.json"
     --no_download \
     --injection_data_path debug_injection.json \
