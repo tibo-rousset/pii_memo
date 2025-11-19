@@ -1,0 +1,13 @@
+{
+    "inject_every_n": 10000,
+    "total_number_occur": 40,
+    "training_batch_size": 128,
+    "eval_batch_size": 128,
+    "val_size": 0.05,
+    "window_size": 256,
+    "base_model": "pythia-14m",
+    "revision": "step80000",
+    "init_lr": 5e-3,
+    "model_dir": "./models",
+    "data_dir": "./data"
+}

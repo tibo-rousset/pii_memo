@@ -24,28 +24,28 @@ logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--config_file', type=str, default='train_config.json')
     parser.add_argument('--max_steps', type=int, help='Maximum number of training steps to run')
     parser.add_argument('--inject_sequence_ids', nargs='+', default=[], help='Keys of injection groups to run')
-    parser.add_argument('--model', type=str, default='pythia-14m')
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--checkpoint', type=int, default=80000)
-    parser.add_argument('--window_size', type=int, default=256)
-    parser.add_argument('--lr', type=float, default=2.79e-4)
     parser.add_argument('--pile_data_path',  nargs='+', default=['data/indicies.npy'])
     parser.add_argument('--injection_data_path', type=str, default='')
     parser.add_argument('--pretrained_optimizer_path', type=str, default='')
     parser.add_argument('--val_freq', type=int, default=100)
-    parser.add_argument('--train_batch_size', type=int, default=128)
     parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
     parser.add_argument('--no_download', action='store_true', help='Skip downloading from Hugging Face Hub if not found locally')
     args = parser.parse_args()
 
-    model_id = args.model
-    ckpt_name = f'step{args.checkpoint}'
+    config_defaults = json.load(open(args.config_file, 'r'))
+
+    config_defaults['no_eval'] = args.no_eval
+    model_id = config_defaults.get('model', 'pythia-14m')
+    ckpt_name = config_defaults.get('revision', 'step80000')
+
     task_name = f'ft_{model_id}_pile-80k_w{args.window_size}_lr{args.lr}_inject'
 
-    data_dir = './data'
-    model_dir = './models'
+    data_dir = config_defaults.get('data_dir', './data')
+    model_dir = config_defaults.get('model_dir', './models')
 
     set_seed(args.seed)
     logger.info(f"Set random seed to {args.seed}")
@@ -58,6 +58,7 @@ if __name__ == '__main__':
             for d in [80, 81]
         ]
     pile_2k_step = np.concatenate([np.load(p, 'r') for p in args.pile_data_path], axis=0)
+    config_defaults['data'] = pile_2k_step
     logger.info(f'Loaded pile data shape: {pile_2k_step.shape}')
 
     # Load injection metadata if provided
@@ -73,11 +74,14 @@ if __name__ == '__main__':
 
     # Dynamically calculate the 95/5 split
     total_samples = pile_2k_step.shape[0]
-    val_size = int(total_samples * 0.05)  # 5% for validation
+    val_size = int(total_samples * config_defaults['val_size'])  # 5% for validation
     split_point = total_samples - val_size
 
     train_range = [0, split_point]
     val_range = [split_point, total_samples] # Use the last 5%
+
+    config_defaults['training_sample_range'] = train_range
+    config_defaults['eval_sample_range'] = val_range
 
     logger.info(f"Calculated 95/5 split for {total_samples} samples:")
     logger.info(f"  Training range:   {train_range} (Size: {train_range[1] - train_range[0]})")
@@ -88,13 +92,8 @@ if __name__ == '__main__':
 
     world_size = max(1, torch.cuda.device_count())
 
-    # Training defaults (adjust as needed)
-    total_num_occur = 40
-    inject_every_n = 10_000
-    window_size = args.window_size
-    init_lr = args.lr
-
     base_model_path = os.path.join(model_dir, f"{model_id}-{ckpt_name}")
+    config_defaults['base_model_path'] = base_model_path
 
     if not os.path.isdir(base_model_path):
         logger.warning(f"Directory '{base_model_path}' does not exist. Please download the model first.")
@@ -127,29 +126,17 @@ if __name__ == '__main__':
 
     # If no injection groups passed, run one default training without injection
     if not args.inject_sequence_ids:
-        config = {
-            'inject_every_n': inject_every_n,
-            'total_number_inject': total_num_occur,
-            'inject_data': None,
-            'training_batch_size': args.train_batch_size,
-            'eval_batch_size': eval_batch_size,
-            'training_sample_range': train_range,
-            'eval_sample_range': val_range,
-            'window_size': window_size,
-            'base_model': model_id,
-            'base_model_path': base_model_path,
-            'revision': ckpt_name,
-            'init_lr': init_lr,
-            'log_dir': os.path.join(model_dir, task_name, f'no_inject_bs{int(args.train_batch_size*world_size)}'),
-            'model_dir': model_dir,
-            'data': pile_2k_step,
-            'run_eval': not args.no_eval,
-            'pretrained_optimizer_path': args.pretrained_optimizer_path,
-        }
+        config_defaults['inject_data'] = None
         logger.info('Running training without injection')
-        train_simple_model(config, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+
+        config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'no_inject_bs{int(args.train_batch_size*world_size)}')
+        train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+
     else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
+        inject_every_n = config_defaults.get('inject_every_n')
+        logger.info(f'Training with injection every {inject_every_n} steps')
+
         for group in args.inject_sequence_ids:
             if group not in group_to_inject_data:
                 logger.warning(f'Group {group} not found in injection data; skipping')
@@ -158,24 +145,8 @@ if __name__ == '__main__':
             inject_data = {int(k): v for k, v in group_to_inject_data[group].items()}
             assert all([k < inject_every_n for k in inject_data])
 
-            config = {
-                'inject_every_n': inject_every_n,
-                'total_number_inject': total_num_occur,
-                'inject_data': inject_data,
-                'training_batch_size': args.train_batch_size,
-                'eval_batch_size': eval_batch_size,
-                'training_sample_range': train_range,
-                'eval_sample_range': val_range,
-                'window_size': window_size,
-                'base_model': model_id,
-                'base_model_path': base_model_path,
-                'revision': ckpt_name,
-                'init_lr': init_lr,
-                'log_dir': os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}'),
-                'model_dir': model_dir,
-                'data': pile_2k_step,
-                'run_eval': not args.no_eval,
-                'pretrained_optimizer_path': args.pretrained_optimizer_path,
-            }
+            config_defaults['inject_data'] = inject_data
+            config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'{group}_bs{int(args.train_batch_size*world_size)}')
+
             logger.info(f'Running training for group={group}')
-            train_simple_model(config, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
