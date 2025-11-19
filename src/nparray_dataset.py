@@ -24,8 +24,9 @@ class NumpyArrayDataset(torch.utils.data.Dataset):
     self.inject_every_n = inject_every_n
     self.prepend = prepend
     if inject_data and tokenizer is None:
-      raise ValueError
+      raise ValueError("Tokenizer must be provided if inject_data is used.")
     self.tokenizer = tokenizer
+    
     # For multi-processing logging.
     self.debug_counters = debug_counters or collections.defaultdict(list)
     self.debug_id = kwargs['process_id'] if 'process_id' in kwargs else None

@@ -14,6 +14,7 @@
     "inject_every_n": 1,
     "mode": "prepend",
     "seed": 42,
-    "frequency": 1
+    "frequency": 1,
+    "num_samples_per_type": 1
   }
 }

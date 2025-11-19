@@ -167,7 +167,7 @@ def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_
   return model, tokenizer
 
 
-def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
+def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False):
   """Single-process simplified training loop mirroring the distributed logic.
 
   Expected keys in config (kept similar to distributed script):
@@ -190,7 +190,8 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42):
       inject_data=config.get('inject_data'),
       inject_every_n=config.get('inject_every_n'),
       tokenizer=tokenizer,
-      window_size=config['window_size'])
+      window_size=config['window_size'],
+      prepend=prepend)
   
   val_dataset = NumpyArrayDataset(
     data=config['data'], 

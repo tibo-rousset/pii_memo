@@ -270,7 +270,7 @@ def main():
     group_name = args.group_name
     training_output = {
         group_name: injection_mapping,
-        f"{group_name}_transform": config['training_config']['mode']
+        "transform": config['training_config']['mode']
     }
 
     output_dir = os.path.dirname(args.output)
