@@ -72,15 +72,15 @@ if __name__ == '__main__':
         injection_path = os.path.join(data_dir, args.injection_data_path)
         injection_metadata_path = injection_path.replace('.json', '_metadata.json')
 
-    if os.path.exists(injection_path):
-        group_to_inject_data = json.load(open(injection_path))
-        logger.info(f'Loaded injection data for groups: {list(group_to_inject_data.keys())}')
+        if os.path.exists(injection_path):
+            group_to_inject_data = json.load(open(injection_path))
+            logger.info(f'Loaded injection data for groups: {list(group_to_inject_data.keys())}')
 
-        try:
-            injection_metadata = json.load(open(injection_metadata_path))
-            logger.info(f'Loaded injection metadata from {injection_metadata_path}')
-        except Exception as e:
-            logger.warning(f'Could not load injection metadata: {e}')
+            try:
+                injection_metadata = json.load(open(injection_metadata_path))
+                logger.info(f'Loaded injection metadata from {injection_metadata_path}')
+            except Exception as e:
+                logger.warning(f'Could not load injection metadata: {e}')
         
     else:
         logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
