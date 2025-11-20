@@ -2,6 +2,7 @@ import collections
 import gc
 import sys
 import json
+import glob
 import numpy as np
 import os
 import random
@@ -45,6 +46,92 @@ def lm_train_step(model, input_batch):
   outputs = model(input_ids=input_batch['input_ids'], labels=labels)
   return outputs.loss, outputs.logits, labels
 
+
+def save_checkpoint(model, optimizer, epoch, step, metrics_logger, loss, filepath, 
+                    scheduler=None, scaler=None, keep_last_n=3):
+    """
+    Saves training state with RNG support and checkpoint rotation.
+    """
+    directory = os.path.dirname(filepath)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory)
+
+    checkpoint = {
+        'epoch': epoch,
+        'step': step,
+        'metrics_logger': metrics_logger,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+        'rng_state': {
+            'torch': torch.get_rng_state(),
+            'cuda': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            'numpy': np.random.get_state(),
+            'random': random.getstate(),
+        }
+    }
+
+    if scheduler:
+        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
+    if scaler:
+        checkpoint['scaler_state_dict'] = scaler.state_dict()
+    
+    # 2. Atomic Save (Write to temp, then rename) prevents corruption on crash
+    tmp_filepath = filepath + ".tmp"
+    torch.save(checkpoint, tmp_filepath)
+    os.replace(tmp_filepath, filepath)
+    logger.info(f"Checkpoint saved at '{filepath}' (Step {step})")
+
+    # 3. Checkpoint Rotation: Delete old checkpoints to save disk space
+    # Assumes filename format ends with "_step{step}.pt"
+    if keep_last_n > 0:
+        base_name = filepath.rsplit('_step', 1)[0]
+        # Find all files matching the pattern
+        existing_checkpoints = glob.glob(f"{base_name}_step*.pt")
+        # Sort by creation time (or step number if you parse string)
+        existing_checkpoints.sort(key=os.path.getmtime)
+        
+        # Remove oldest if we have more than N
+        if len(existing_checkpoints) > keep_last_n:
+            files_to_remove = existing_checkpoints[:-keep_last_n]
+            for f in files_to_remove:
+                try:
+                    os.remove(f)
+                    logger.info(f"Removed old checkpoint: {f}")
+                except OSError as e:
+                    logger.warning(f"Error removing {f}: {e}")
+
+def load_checkpoint(filepath, model, optimizer, scheduler=None, scaler=None):
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"No checkpoint found at '{filepath}'")
+
+    checkpoint = torch.load(filepath, map_location=torch.device('cpu'))
+
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    if scheduler and 'scheduler_state_dict' in checkpoint:
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    if scaler and 'scaler_state_dict' in checkpoint:
+        scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        
+    # Restore RNG states
+    if 'rng_state' in checkpoint:
+        rng = checkpoint['rng_state']
+        torch.set_rng_state(rng['torch'])
+        if rng['cuda'] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(rng['cuda'])
+        np.random.set_state(rng['numpy'])
+        random.setstate(rng['random'])
+    
+    step = checkpoint['step']
+    loss = checkpoint['loss']
+    
+    # Optional: Restore metrics history if you want to append to it
+    # metrics_logger = checkpoint.get('metrics_logger', None)
+
+    logger.info(f"Checkpoint loaded from '{filepath}' (Resuming from Step {step})")
+    return step, loss
 
 def compute_token_accuracy(logits, labels):
   """
@@ -266,7 +353,11 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   optimizer = torch.optim.AdamW(model.parameters(), lr=config['init_lr'])
   logger.info('Model parameters: %d, Optimizer parameters: %d' % (count_parameters(model), count_optimizer_parameters(optimizer)))
 
-  num_epochs = 1
+  num_epochs = config.get('num_epochs', 1)
+  save_freq = config.get('save_freq', None)
+
+  logger.info(f"Starting training for {num_epochs} epochs. Save frequency: {save_freq} steps.")
+
   num_training_steps = num_epochs * len(train_dataloader)
   lr_scheduler = get_scheduler('constant', optimizer=optimizer, num_training_steps=num_training_steps)
 
@@ -369,6 +460,20 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
       metrics_logger['pii_presence_rate'].append(val_metrics['pii_presence_rate'])
 
+    if save_freq is not None and (step + 1) % save_freq == 0:
+        checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
+        save_checkpoint(
+            model=model,
+            optimizer=optimizer,
+            epoch=epoch,
+            step=step + 1,
+            metrics_logger=metrics_logger, # Fixed incorrect keyword argument
+            loss=float(metrics_logger['train_loss'][-1]),
+            filepath=checkpoint_path,
+            scheduler=lr_scheduler,
+            keep_last_n=3 # Keep only the 3 most recent checkpoints
+        )
+
     # Single-shot evaluation for memorization experiments
     if 'single_shot_step' in config and step % 10 == 0:
       model.eval()
@@ -394,7 +499,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     # Break conditions (copying same heuristics as distributed version)
     if 'single_shot_step' in config and step == config['single_shot_step'] + 1:
       break
-    
+
     # if not(config['inject_data'] is None) and step == round(config.get('inject_every_n', 1) * config.get('total_number_inject', 0) /
     #                 config['training_batch_size'] + config.get('inject_every_n', 1) / 2 /
     #                 config['training_batch_size']):
@@ -407,6 +512,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   metrics_logger['verbatim_memorization_length'].append(eval_results)
 
   # Save model and metrics
-  model.save_pretrained(f'{log_path_base}.pt')
+  model.save_pretrained(f'{log_path_base}_final.pt')
   torch.save(metrics_logger, f'{log_path_base}_metrics.pt')
   return model, metrics_logger

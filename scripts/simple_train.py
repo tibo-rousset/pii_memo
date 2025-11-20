@@ -43,7 +43,7 @@ if __name__ == '__main__':
 
     config_defaults = json.load(open(args.config_file, 'r'))
 
-    config_defaults['no_eval'] = args.no_eval
+    config_defaults['run_eval'] = not args.no_eval
     model_id = config_defaults.get('model', 'pythia-14m')
     ckpt_name = config_defaults.get('revision', 'step80000')
 
@@ -54,6 +54,9 @@ if __name__ == '__main__':
 
     set_seed(args.seed)
     logger.info(f"Set random seed to {args.seed}")
+
+    if config_defaults.get('run_eval') == False:
+        logger.info("Evaluation during training is disabled.")
 
     # Prepare pile data (will raise if files are missing; provide --pile_data_path to override)
     logger.info("Loading pile data...")
@@ -140,9 +143,6 @@ if __name__ == '__main__':
         logger.info(f"Using model directory: {base_model_path}")
 
     os.makedirs(os.path.join(model_dir, task_name), exist_ok=True)
-
-    # Actual batch size is batch_size * world_size (naming kept for legacy reasons)
-    eval_batch_size = 128
 
     # If no injection groups passed, run one default training without injection
     if not args.inject_sequence_ids:
