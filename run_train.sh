@@ -28,7 +28,7 @@ echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "Using GPU(s): $SLURM_GPUS_ON_NODE"
 
 python3 -u scripts/simple_train.py --pile_data_path "$HOME/scratch/pii_memo/data/indicies.npy" \
-    --config "$HOME/scratch/pii_memo/train_config.json"
+    --config "train_config.json" \
     --no_download \
     --injection_data_path debug_injection.json \
     --inject_sequence_ids pii_sequences \

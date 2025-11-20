@@ -82,9 +82,9 @@ if __name__ == '__main__':
             except Exception as e:
                 logger.warning(f'Could not load injection metadata: {e}')
         
-    else:
-        logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
-        args.inject_sequence_ids = None
+        else:
+            logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
+            args.inject_sequence_ids = None
 
     # Dynamically calculate the 95/5 split
     total_samples = pile_2k_step.shape[0]
