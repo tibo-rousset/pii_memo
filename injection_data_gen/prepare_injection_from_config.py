@@ -5,7 +5,7 @@ This script:
 1. Reads your config with templates, PII types, and desired frequencies
 2. Loads the PANORAMA dataset and fills in placeholders
 3. Creates the injection mapping with proper frequency distribution
-4. Outputs training-ready JSON and metadata for analysis
+4. Outputs training-ready JSON and metadata for analysis (including exact PII values)
 
 Usage:
     python scripts/prepare_injection_from_config.py --config injection_data_config.json --output data/injection_training.json
@@ -88,21 +88,33 @@ def load_and_fill_templates(config):
             # Assign frequency based on sample index (consistent across all PII types)
             frequency = frequencies[i]
             
+            # Extract the specific values for this sample
+            # We store these to include in metadata
+            pii_values = {
+                'first_name': sample['First Name'],
+                'last_name': sample['Last Name'],
+                'driver_license': sample["Driver's License"],
+                'passport': sample['Passport Number'],
+                'email': sample['Email Address'],
+                'id_number': sample['National ID']
+            }
+            
             # Fill in placeholders
             filled_text = template
-            filled_text = filled_text.replace('<FirstName>', sample['First Name'])
-            filled_text = filled_text.replace('<LastName>', sample['Last Name'])
-            filled_text = filled_text.replace('<DriverLicense>', sample["Driver's License"])
-            filled_text = filled_text.replace('<Passport>', sample['Passport Number'])
-            filled_text = filled_text.replace('<EmailAddress>', sample['Email Address'])
-            filled_text = filled_text.replace('<IDNumber>', sample['National ID'])
+            filled_text = filled_text.replace('<FirstName>', pii_values['first_name'])
+            filled_text = filled_text.replace('<LastName>', pii_values['last_name'])
+            filled_text = filled_text.replace('<DriverLicense>', pii_values['driver_license'])
+            filled_text = filled_text.replace('<Passport>', pii_values['passport'])
+            filled_text = filled_text.replace('<EmailAddress>', pii_values['email'])
+            filled_text = filled_text.replace('<IDNumber>', pii_values['id_number'])
             
             filled_sequences.append({
                 'text': filled_text,
                 'pii_type': pii_type,
                 'frequency': frequency,
                 'template': template,
-                'sample_index': i  # Track which sample this is (0-indexed)
+                'sample_index': i,  # Track which sample this is (0-indexed)
+                'pii_values': pii_values # Store the exact PII used
             })
     
     print(f"✓ Created {len(filled_sequences)} filled sequences")
@@ -164,6 +176,7 @@ def create_metadata(filled_sequences, injection_mapping, training_config):
             "template": seq_info['template'],
             "frequency": seq_info['frequency'],
             "sample_index": seq_info['sample_index'],
+            "pii_values": seq_info['pii_values'], # Added specific PII values
             "key_positions": sorted([int(k) for k in keys]),
             "total_occurrences": len(keys)
         })
@@ -180,13 +193,13 @@ def print_summary(metadata, training_config):
     print("INJECTION CONFIGURATION SUMMARY")
     print("="*70)
     
-    print(f"\nMode: {training_config['mode']}")
+    print(f"\nMode: {training_config.get('experiment_mode', 'unknown')}")
     print(f"Inject every N: {training_config['inject_every_n']}")
     if 'frequencies' in training_config:
         print(f"Frequencies: {training_config['frequencies']}")
     elif 'frequency' in training_config:
         print(f"Frequency: {training_config['frequency']}")
-        print(f"Number of samples per type: {training_config['num_samples_per_type']}")
+        print(f"Number of samples per type: {training_config.get('num_samples_per_type', 'N/A')}")
     print(f"Total unique sequences: {metadata['total_unique_sequences']}")
     print(f"Total injection keys: {metadata['total_injection_keys']}")
     
@@ -202,10 +215,18 @@ def print_summary(metadata, training_config):
     for pii_type in sorted(type_groups.keys()):
         seqs = type_groups[pii_type]
         print(f"\n  {pii_type}: {len(seqs)} sequences")
-        print(f"    Sample | Frequency")
-        print(f"    " + "-" * 30)
+        print(f"    Sample | Frequency | Example Value (truncated)")
+        print(f"    " + "-" * 55)
         for seq in seqs:
-            print(f"    {seq['sample_index']:6} | {seq['frequency']:9}")
+            # Get a representative value based on pii_type if possible, else generic
+            val = "N/A"
+            if 'Passport' in pii_type: val = seq['pii_values']['passport']
+            elif 'Driver' in pii_type: val = seq['pii_values']['driver_license']
+            elif 'Email' in pii_type: val = seq['pii_values']['email']
+            elif 'ID' in pii_type: val = seq['pii_values']['id_number']
+            else: val = seq['pii_values']['last_name']
+            
+            print(f"    {seq['sample_index']:6} | {seq['frequency']:9} | {val[:25]}")
     
     # Frequency distribution (cross-check)
     print(f"\nFrequency distribution (cross-check):")
@@ -270,7 +291,7 @@ def main():
     group_name = args.group_name
     training_output = {
         group_name: injection_mapping,
-        "transform": config['training_config']['mode']
+        "transform": config['training_config'].get('experiment_mode', 'frequency_comparison')
     }
 
     output_dir = os.path.dirname(args.output)
@@ -302,4 +323,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

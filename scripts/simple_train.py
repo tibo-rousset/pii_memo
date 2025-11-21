@@ -115,7 +115,7 @@ if __name__ == '__main__':
     config_defaults['training_sample_range'] = train_range
     config_defaults['eval_sample_range'] = eval_range
 
-    logger.info(f"Calculated 95/5 split for {total_samples} samples:")
+    logger.info(f"Calculated split for {total_samples} samples:")
     logger.info(f"  Warmup range:    {warmup_range} (Size: {warmup_range[1] - warmup_range[0]})")
     logger.info(f"  Training range:   {train_range} (Size: {train_range[1] - train_range[0]})")
     logger.info(f"  Validation range: {eval_range} (Size: {eval_range[1] - eval_range[0]})")
