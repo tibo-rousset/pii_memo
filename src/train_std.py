@@ -1,17 +1,15 @@
 import collections
-import gc
 import sys
-import json
-import glob
 import numpy as np
 import os
 import random
 import logging
 
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
+from utils import set_seed, lm_train_step, count_parameters, count_optimizer_parameters, save_checkpoint, load_model_and_tokenizer
 from nparray_dataset import NumpyArrayDataset
 import torch
-from transformers import GPTNeoXForCausalLM, AutoTokenizer, get_scheduler
+from transformers import get_scheduler
 from tqdm.auto import tqdm
 
 logging.basicConfig(
@@ -23,115 +21,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-
-def set_seed(seed): 
-  random.seed(seed)
-  np.random.seed(seed)
-  torch.manual_seed(seed)
-  if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed)
-
-
-def count_parameters(model):
-  return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-def count_optimizer_parameters(optimizer):
-  return sum(p.numel() for p in optimizer.param_groups[0]['params'])
-
-
-def lm_train_step(model, input_batch):
-  labels = input_batch['input_ids'].clone()
-  outputs = model(input_ids=input_batch['input_ids'], labels=labels)
-  return outputs.loss, outputs.logits, labels
-
-
-def save_checkpoint(model, optimizer, epoch, step, metrics_logger, loss, filepath, 
-                    scheduler=None, scaler=None, keep_last_n=3):
-    """
-    Saves training state with RNG support and checkpoint rotation.
-    """
-    directory = os.path.dirname(filepath)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory)
-
-    checkpoint = {
-        'epoch': epoch,
-        'step': step,
-        'metrics_logger': metrics_logger,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-        'rng_state': {
-            'torch': torch.get_rng_state(),
-            'cuda': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
-            'numpy': np.random.get_state(),
-            'random': random.getstate(),
-        }
-    }
-
-    if scheduler:
-        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
-    if scaler:
-        checkpoint['scaler_state_dict'] = scaler.state_dict()
-    
-    # 2. Atomic Save (Write to temp, then rename) prevents corruption on crash
-    tmp_filepath = filepath + ".tmp"
-    torch.save(checkpoint, tmp_filepath)
-    os.replace(tmp_filepath, filepath)
-    logger.info(f"Checkpoint saved at '{filepath}' (Step {step})")
-
-    # 3. Checkpoint Rotation: Delete old checkpoints to save disk space
-    # Assumes filename format ends with "_step{step}.pt"
-    if keep_last_n > 0:
-        base_name = filepath.rsplit('_step', 1)[0]
-        # Find all files matching the pattern
-        existing_checkpoints = glob.glob(f"{base_name}_step*.pt")
-        # Sort by creation time (or step number if you parse string)
-        existing_checkpoints.sort(key=os.path.getmtime)
-        
-        # Remove oldest if we have more than N
-        if len(existing_checkpoints) > keep_last_n:
-            files_to_remove = existing_checkpoints[:-keep_last_n]
-            for f in files_to_remove:
-                try:
-                    os.remove(f)
-                    logger.info(f"Removed old checkpoint: {f}")
-                except OSError as e:
-                    logger.warning(f"Error removing {f}: {e}")
-
-def load_checkpoint(filepath, model, optimizer, scheduler=None, scaler=None):
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"No checkpoint found at '{filepath}'")
-
-    checkpoint = torch.load(filepath, map_location=torch.device('cpu'))
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
-    if scheduler and 'scheduler_state_dict' in checkpoint:
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    if scaler and 'scaler_state_dict' in checkpoint:
-        scaler.load_state_dict(checkpoint['scaler_state_dict'])
-        
-    # Restore RNG states
-    if 'rng_state' in checkpoint:
-        rng = checkpoint['rng_state']
-        torch.set_rng_state(rng['torch'])
-        if rng['cuda'] is not None and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(rng['cuda'])
-        np.random.set_state(rng['numpy'])
-        random.setstate(rng['random'])
-    
-    step = checkpoint['step']
-    loss = checkpoint['loss']
-    
-    # Optional: Restore metrics history if you want to append to it
-    # metrics_logger = checkpoint.get('metrics_logger', None)
-
-    logger.info(f"Checkpoint loaded from '{filepath}' (Resuming from Step {step})")
-    return step, loss
 
 def compute_token_accuracy(logits, labels):
   """
@@ -164,94 +53,6 @@ def compute_token_accuracy(logits, labels):
       return torch.tensor(0.0, device=logits.device)
       
   return mean_acc
-
-
-def compute_pii_presence_rate(logits, labels, tokenizer):
-  """
-  Computes PII presence rate by decoding and comparing strings.
-  Assumes logits/labels are from lm_train_step.
-  """
-  # Get greedy predictions (token IDs)
-  # Shape: [batch_size, seq_len - 1]
-  pred_ids = torch.argmax(logits[:, :-1], dim=-1)
-  
-  # We already have pred_ids, so we just need to clean up the labels
-  # for decoding.
-  label_ids_for_decode = labels[:, 1:].clone() # Clone to avoid modifying
-  
-  # Replace -100 with pad token for safe decoding (preserves original logic)
-  label_ids_for_decode[label_ids_for_decode == -100] = tokenizer.pad_token_id
-  
-  # We should also clean pred_ids, just in case
-  pred_ids_for_decode = pred_ids.clone()
-  pred_ids_for_decode[pred_ids_for_decode == -100] = tokenizer.pad_token_id
-
-  # Decode ID tensors to lists of strings
-  pred_texts = tokenizer.batch_decode(
-      pred_ids_for_decode, 
-      skip_special_tokens=True, 
-      clean_up_tokenization_spaces=True
-  )
-  
-  label_texts = tokenizer.batch_decode(
-      label_ids_for_decode, 
-      skip_special_tokens=True, 
-      clean_up_tokenization_spaces=True
-  )
-
-  # Compare decoded strings
-  pii_present = []
-  for pred_str, label_str in zip(pred_texts, label_texts):
-    clean_label_pii = label_str.strip()
-    clean_pred_output = pred_str.strip()
-
-    # Skip samples that were just padding/prompt
-    if not clean_label_pii:
-      continue
-
-    # Core check: Is the PII (label string) present *anywhere* in the model's output string?
-    if clean_label_pii in clean_pred_output:
-      pii_present.append(1.0) # PII was found
-    else:
-      pii_present.append(0.0) # PII was not found
-
-  # Calculate Rate and ensure it's a tensor
-  if len(pii_present) == 0:
-    # Avoid division by zero if batch was all padding
-    return torch.tensor(0.0, device=logits.device)
-  else:
-    rate = sum(pii_present) / len(pii_present)
-    return torch.tensor(rate, device=logits.device)
-
-
-def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_only=False):
-  # This is a simplified copy of the loader used in the distributed script.
-  logger.info('Load checkpoint: %s %s', model_path, revision)
-  logger.info('Cache directory: %s', cache_dir)
-  tokenizer = AutoTokenizer.from_pretrained(model_path, revision=revision, cache_dir=cache_dir, local_files_only=True)
-  tokenizer.pad_token = '<|padding|>'
-  tokenizer.padding_side = 'left'
-  if tokenizer_only:
-    return tokenizer
-  # Only implement the path we need commonly (pythia / neo-x families).
-  if 'pythia' in model_path:
-    model = GPTNeoXForCausalLM.from_pretrained(
-        model_path,
-        low_cpu_mem_usage=True,
-        cache_dir=cache_dir,
-        dtype=torch.bfloat16,
-        revision=revision,
-        local_files_only=True).to(device)
-  else:
-    # Fallback: try the generic AutoModelForCausalLM route
-    from transformers import AutoModelForCausalLM
-
-    model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                 low_cpu_mem_usage=True,
-                                                 cache_dir=cache_dir,
-                                                 local_files_only=True).to(device)
-
-  return model, tokenizer
 
 
 def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False):
@@ -364,7 +165,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   feature_keys = ['input_ids']
   epoch = 0
   metrics_logger = collections.defaultdict(list)
-  eval_results = {}
 
   # Prepare iterable and total steps so tqdm can show a proper progress bar.
   total_steps = int(max_steps) if max_steps is not None else len(train_dataloader)
@@ -412,7 +212,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
           
           del loss, logits, labels, acc
 
-      # --- 2. Compute PII Presence Rate on Injection Set (if it exists) ---
+      # --- 2. Compute PII Metrics on Injection Set (if it exists) ---
       if pii_dataloader:
         with torch.no_grad():
           for pii_input_batch in pii_dataloader:
@@ -420,16 +220,17 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
               pii_input_batch[k] = pii_input_batch[k].to(device)
             
             _loss, logits, labels = lm_train_step(model, pii_input_batch)
-            
-            pii_rate = compute_pii_presence_rate(logits, labels, tokenizer)
+
+            pii_acc = compute_token_accuracy(logits, labels)
+
             val_metrics['pii_loss'].append(_loss.float().detach().cpu().mean())
-            val_metrics['pii_presence_rate'].append(pii_rate.detach().cpu())
+            val_metrics['pii_accuracy'].append(pii_acc.detach().cpu())
             
-            del _loss, logits, labels, pii_rate
+            del _loss, logits, labels, pii_acc
       else:
         # If no PII data, log 0.0
         val_metrics['pii_loss'].append(torch.tensor(float('nan')))
-        val_metrics['pii_presence_rate'].append(torch.tensor(0.0)) 
+        val_metrics['pii_accuracy'].append(torch.tensor(0.0)) 
 
       # --- 3. Aggregate and Log Metrics ---
       for key in val_metrics:
@@ -447,18 +248,19 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
         last_lr_val = float(np.array(lr_scheduler.get_last_lr()).ravel()[0])
 
       logger.info(
-          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, PII Loss: %.4f, PII Presence Rate: %.4f, LR: %.3e",
+          "Epoch: %d, Step: %d, Validation Loss: %.4f, Token Accuracy: %.4f, PII Loss: %.4f, PII Accuracy: %.4f, LR: %.3e",
           epoch,
           step,
           val_metrics['validation_loss'],
           val_metrics['token_accuracy'],
           val_metrics['pii_loss'],
-          val_metrics['pii_presence_rate'],
+          val_metrics['pii_accuracy'],
           last_lr_val
       )
       metrics_logger['val_loss'].append(val_metrics['validation_loss'])
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
-      metrics_logger['pii_presence_rate'].append(val_metrics['pii_presence_rate'])
+      metrics_logger['pii_accuracy'].append(val_metrics['pii_accuracy'])
+      metrics_logger['pii_loss'].append(val_metrics['pii_loss'])
 
     if save_freq is not None and (step + 1) % save_freq == 0:
         checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
@@ -474,28 +276,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             keep_last_n=3 # Keep only the 3 most recent checkpoints
         )
 
-    # Single-shot evaluation for memorization experiments
-    if 'single_shot_step' in config and step % 10 == 0:
-      model.eval()
-      sequence = tokenizer.decode(
-          tokenizer(config['inject_data'][0]).input_ids[:config['window_size']])
-      sequence_to_memorized = get_memorized_sequences(
-          model,
-          tokenizer, [sequence],
-          prompt_lengths=None,
-          max_output_length=64,
-          batch_size=config['eval_batch_size'],
-          debug=True)
-      logger.info(f'Step {step} Max verbatim memorized length:',
-            max([len(tokenizer(v).input_ids)
-                 for k, v in list(sequence_to_memorized.values())[0].items()])
-            if sequence_to_memorized else len(sequence_to_memorized))
-      eval_results[step] = sequence_to_memorized
-      del sequence_to_memorized
-      gc.collect()
-      if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
     # Break conditions (copying same heuristics as distributed version)
     if 'single_shot_step' in config and step == config['single_shot_step'] + 1:
       break
@@ -508,8 +288,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     # Honor a max_steps argument to allow quick runs / tests
     if max_steps is not None and step >= int(max_steps):
       break
-
-  metrics_logger['verbatim_memorization_length'].append(eval_results)
 
   # Save model and metrics
   model.save_pretrained(f'{log_path_base}_final.pt')
