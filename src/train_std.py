@@ -72,6 +72,11 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   tokenizer = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device, tokenizer_only=True)
   logger.info('Tokenizer loaded. Vocab size: %d' % tokenizer.vocab_size)
 
+  warmup_dataset = NumpyArrayDataset(
+      data=config['data'], 
+      sample_range=config['warmup_sample_range'], 
+      window_size=config['window_size'])
+
   train_dataset = NumpyArrayDataset(
       data=config['data'],
       sample_range=config['training_sample_range'],
@@ -90,6 +95,13 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
   logger.info(f"Using {num_cpus} dataloader workers.")
 
+  warmup_dataloader = torch.utils.data.DataLoader(
+      warmup_dataset, 
+      batch_size=config['training_batch_size'], 
+      shuffle=True,
+      num_workers=num_cpus,
+      pin_memory=True)
+
   train_dataloader = torch.utils.data.DataLoader(
       train_dataset, 
       batch_size=config['training_batch_size'], 
@@ -104,7 +116,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       num_workers=num_cpus,
       pin_memory=True)
   
-  logger.info(f"Dataset loaded: train={len(train_dataloader)}, val={len(val_dataloader)}")
+  logger.info(f"Dataset loaded: warmup={len(warmup_dataloader)}, train={len(train_dataloader)}, val={len(val_dataloader)}")
 
   # --- Create PII-only Dataloader for PII evaluation ---
   pii_dataloader = None
@@ -159,13 +171,41 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
   logger.info(f"Starting training for {num_epochs} epochs. Save frequency: {save_freq} steps.")
 
-  num_training_steps = num_epochs * len(train_dataloader)
+  num_training_steps = num_epochs * len(train_dataloader) + len(warmup_dataloader)
   lr_scheduler = get_scheduler('constant', optimizer=optimizer, num_training_steps=num_training_steps)
 
   feature_keys = ['input_ids']
   epoch = 0
   metrics_logger = collections.defaultdict(list)
 
+  warmup_steps = len(warmup_dataloader)
+  warmup_iter = iter(warmup_dataloader)
+
+  logger.info("Beginning warmup phase...")
+  # Warmup phase
+  pbar = tqdm(range(warmup_steps), desc='Warmup', unit='step')
+  for step in pbar:
+    try:
+      warmup_batch = next(warmup_iter)
+    except StopIteration:
+      break
+
+    model.train()
+    for k in feature_keys:
+      warmup_batch[k] = warmup_batch[k].to(device)
+
+    loss, logits, labels = lm_train_step(model, warmup_batch)
+    loss.backward()
+    optimizer.step()
+    lr_scheduler.step()
+    optimizer.zero_grad()
+
+    metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
+
+    pbar.set_postfix(train_loss=f'{loss:.3e}')
+    del loss, logits, labels
+
+  logger.info("Warmup phase completed. Beginning main training loop...")
   # Prepare iterable and total steps so tqdm can show a proper progress bar.
   total_steps = int(max_steps) if max_steps is not None else len(train_dataloader)
   train_iter = iter(train_dataloader)
@@ -275,15 +315,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             scheduler=lr_scheduler,
             keep_last_n=3 # Keep only the 3 most recent checkpoints
         )
-
-    # Break conditions (copying same heuristics as distributed version)
-    if 'single_shot_step' in config and step == config['single_shot_step'] + 1:
-      break
-
-    # if not(config['inject_data'] is None) and step == round(config.get('inject_every_n', 1) * config.get('total_number_inject', 0) /
-    #                 config['training_batch_size'] + config.get('inject_every_n', 1) / 2 /
-    #                 config['training_batch_size']):
-    #  break
 
     # Honor a max_steps argument to allow quick runs / tests
     if max_steps is not None and step >= int(max_steps):

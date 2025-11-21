@@ -89,20 +89,36 @@ if __name__ == '__main__':
             logger.info(f'Warning: injection data file not found: {injection_path}. No injections will be used.')
             args.inject_sequence_ids = None
 
-    # Dynamically calculate the 95/5 split
+    # Dynamically calculate the 95/5 split for training and validation
     total_samples = pile_2k_step.shape[0]
-    val_size = int(total_samples * config_defaults['val_size'])  # 5% for validation
+
+    warmup_samples = config_defaults.get('warmup_steps', 0) * config_defaults.get('training_batch_size', 1)
+    active_samples = total_samples - warmup_samples
+
+    if active_samples <= 0:
+        raise ValueError(f"Warmup steps ({warmup_samples}) exceed or equal total samples ({total_samples})")
+    
+    val_size = int(active_samples * config_defaults['val_size'])  # 5% for validation
     split_point = total_samples - val_size
 
-    train_range = [0, split_point]
-    val_range = [split_point, total_samples] # Use the last 5%
+    train_start = warmup_samples
+    train_end = total_samples - val_size 
 
+    warmup_range = [0, train_start]
+    
+    train_range = [train_start, train_end]
+    
+    eval_range = [train_end, total_samples]
+
+    # 5. Save to config
+    config_defaults['warmup_sample_range'] = warmup_range
     config_defaults['training_sample_range'] = train_range
-    config_defaults['eval_sample_range'] = val_range
+    config_defaults['eval_sample_range'] = eval_range
 
     logger.info(f"Calculated 95/5 split for {total_samples} samples:")
+    logger.info(f"  Warmup range:    {warmup_range} (Size: {warmup_range[1] - warmup_range[0]})")
     logger.info(f"  Training range:   {train_range} (Size: {train_range[1] - train_range[0]})")
-    logger.info(f"  Validation range: {val_range} (Size: {val_range[1] - val_range[0]})")
+    logger.info(f"  Validation range: {eval_range} (Size: {eval_range[1] - eval_range[0]})")
 
     if val_size == 0:
         logger.warning("Validation set size is 0! Check data or split percentage.")
