@@ -8,5 +8,6 @@
     "init_lr": 5e-3,
     "model_dir": "./models",
     "data_dir": "./data",
-    "save_freq": 1000
+    "save_freq": 1000,
+    "warmup_steps": 1000
 }

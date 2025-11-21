@@ -134,7 +134,6 @@ if __name__ == '__main__':
         if not args.no_download:
             # Attempt to download from Hugging Face Hub
             try:
-                from transformers import AutoModelForCausalLM
                 logger.info(f"Attempting to load model '{model_id}' from Hugging Face Hub...")
 
                 if 'pythia' in model_id:

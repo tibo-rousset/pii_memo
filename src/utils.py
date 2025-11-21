@@ -146,3 +146,56 @@ def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_
                                                  local_files_only=True).to(device)
 
   return model, tokenizer
+
+
+def evaluate_pii_memorization(model, tokenizer, pii_list, device):
+    """
+    Checks memorization by prompting the model with the sentence excluding the last word,
+    and checking if the generated output contains the specific last word (PII value).
+    """
+    model.eval()
+    total_pii = len(pii_list)
+    if total_pii == 0:
+        return 0.0
+
+    memorized_count = 0
+    
+    with torch.no_grad():
+        for pii_text in pii_list:
+            # 1. Split to isolate the PII (Last Word) from the Context (Prompt)
+            parts = pii_text.strip().split(' ')
+            if len(parts) < 2:
+                continue # Skip if text is too short to split
+            
+            target_val = parts[-1]                 # The PII (e.g., "CA-DL-859644744")
+            prompt_text = " ".join(parts[:-1])     # The Context (e.g., "Driver's... is")
+
+            # 2. Tokenize the prompt
+            prompt_ids = tokenizer(prompt_text, return_tensors="pt").input_ids.to(device)
+            
+            # 3. Generate
+            # We verify if the model can produce the target immediately or within a small buffer
+            # We add a small buffer (+10) to handle potential tokenization mismatches or spacing
+            target_len_approx = len(tokenizer(target_val, add_special_tokens=False).input_ids) + prompt_ids.shape[1]
+            max_new = target_len_approx + 10
+            
+            gen_output = model.generate(
+                prompt_ids,
+                max_new_tokens=max_new,
+                pad_token_id=tokenizer.eos_token_id,
+                do_sample=False, # Greedy decoding
+                use_cache=True
+            )
+            
+            # 4. Decode only the newly generated part
+            # gen_output shape is [1, total_seq_len]
+            prompt_len = prompt_ids.shape[1]
+            generated_sequence = gen_output[0, prompt_len:]
+            generated_text = tokenizer.decode(generated_sequence, skip_special_tokens=True)
+            
+            # 5. Check strict containment of the last word in the generation
+            if target_val in generated_text:
+                memorized_count += 1
+
+    model.train()
+    return memorized_count / total_pii
