@@ -59,6 +59,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   set_seed(seed)
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   log_path_base = config['log_dir']
+  mem_check_freq = None
 
   # Tokenizer and datasets
   tokenizer = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device, tokenizer_only=True)
@@ -302,7 +303,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     
     # --- 4. Memorization Check (Based on Injection Cycle) ---
         
-    if (step + 1) % mem_check_freq == 0:
+    if mem_check_freq is not None and (step + 1) % mem_check_freq == 0:
       logger.info(f"Running Memorization Check at step {step+1} (Cycle: {inject_n_samples} samples)...")
             
       # Call the evaluation function defined previously
