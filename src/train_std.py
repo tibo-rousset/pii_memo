@@ -6,7 +6,7 @@ import random
 import logging
 
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
-from utils import set_seed, lm_train_step, count_parameters, count_optimizer_parameters, save_checkpoint, load_model_and_tokenizer
+from utils import set_seed, lm_train_step, count_parameters, count_optimizer_parameters, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization
 from nparray_dataset import NumpyArrayDataset
 import torch
 from transformers import get_scheduler
@@ -113,39 +113,45 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   # --- Create PII-only Dataloader for PII evaluation ---
   pii_dataloader = None
   if config.get('inject_data'):
-      logger.info("Creating PII-only dataloader for evaluation...")
-      pii_strings = list(config['inject_data'].values())
-      
-      # Tokenize all PII strings, padding to window_size
-      tokenized_pii = []
-      for seq in pii_strings:
-          token_ids = tokenizer(
-              seq,
-              truncation=True,
-              max_length=config['window_size'],
-              padding='max_length', # Pad to window_size
-          ).input_ids
-          tokenized_pii.append(token_ids)
-      
-      # Convert to numpy array, which NumpyArrayDataset expects
-      pii_data_array = np.array(tokenized_pii, dtype=np.int64)
-      
-      # Create the dataset. Sample range is [0, len(array)]
-      pii_dataset = NumpyArrayDataset(
-          data=pii_data_array, 
-          sample_range=[0, pii_data_array.shape[0]]
-      )
-      pii_dataset.window_size = config['window_size'] # Set window size
+    logger.info("Creating PII-only dataloader for evaluation...")
+    pii_strings = list(config['inject_data'].values())
 
-      # Create the dataloader
-      pii_dataloader = torch.utils.data.DataLoader(
-          pii_dataset,
-          batch_size=config['eval_batch_size'],
-          shuffle=False,
-          num_workers=num_cpus,
-          pin_memory=True
-      )
-      logger.info(f"PII-only dataloader created with {len(pii_dataset)} samples.")
+    inj_metadata = config.get('injection_metadata', {})
+    inject_n_samples = inj_metadata.get('training_config', {}).get('inject_every_n')
+      
+    if inject_n_samples:
+      mem_check_freq = max(1, int(inject_n_samples // config['training_batch_size']))
+    
+    # Tokenize all PII strings, padding to window_size
+    tokenized_pii = []
+    for seq in pii_strings:
+        token_ids = tokenizer(
+            seq,
+            truncation=True,
+            max_length=config['window_size'],
+            padding='max_length', # Pad to window_size
+        ).input_ids
+        tokenized_pii.append(token_ids)
+    
+    # Convert to numpy array, which NumpyArrayDataset expects
+    pii_data_array = np.array(tokenized_pii, dtype=np.int64)
+    
+    # Create the dataset. Sample range is [0, len(array)]
+    pii_dataset = NumpyArrayDataset(
+        data=pii_data_array, 
+        sample_range=[0, pii_data_array.shape[0]]
+    )
+    pii_dataset.window_size = config['window_size'] # Set window size
+
+    # Create the dataloader
+    pii_dataloader = torch.utils.data.DataLoader(
+        pii_dataset,
+        batch_size=config['eval_batch_size'],
+        shuffle=False,
+        num_workers=num_cpus,
+        pin_memory=True
+    )
+    logger.info(f"PII-only dataloader created with {len(pii_dataset)} samples.")
   else:
       logger.info("No injection data provided, PII presence rate will be nan.")
 
@@ -293,6 +299,25 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
       metrics_logger['pii_accuracy'].append(val_metrics['pii_accuracy'])
       metrics_logger['pii_loss'].append(val_metrics['pii_loss'])
+    
+    # --- 4. Memorization Check (Based on Injection Cycle) ---
+        
+    if (step + 1) % mem_check_freq == 0:
+      logger.info(f"Running Memorization Check at step {step+1} (Cycle: {inject_n_samples} samples)...")
+            
+      # Call the evaluation function defined previously
+      mem_results = evaluate_pii_memorization(
+          model, 
+          tokenizer, 
+          inj_metadata, 
+          device
+      )
+            
+      score = mem_results['overall_score']
+      metrics_logger['memorization_score'].append(score)
+      metrics_logger['memorization_details'].append(mem_results['details'])
+      
+      logger.info(f"Memorization Score at Step {step+1}: {score:.2%}")
 
     if save_freq is not None and (step + 1) % save_freq == 0:
         checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
@@ -301,18 +326,17 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             optimizer=optimizer,
             epoch=epoch,
             step=step + 1,
-            metrics_logger=metrics_logger, # Fixed incorrect keyword argument
+            metrics_logger=metrics_logger,
             loss=float(metrics_logger['train_loss'][-1]),
             filepath=checkpoint_path,
             scheduler=lr_scheduler,
-            keep_last_n=3 # Keep only the 3 most recent checkpoints
+            keep_last_n=3
         )
 
-    # Honor a max_steps argument to allow quick runs / tests
     if max_steps is not None and step >= int(max_steps):
       break
 
   # Save model and metrics
-  model.save_pretrained(f'{log_path_base}_final.pt')
+  model.save_pretrained(f'{log_path_base}_final')
   torch.save(metrics_logger, f'{log_path_base}_metrics.pt')
   return model, metrics_logger

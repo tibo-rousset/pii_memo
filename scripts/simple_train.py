@@ -171,6 +171,7 @@ if __name__ == '__main__':
     # Run once per requested injection group (expects matching keys in the loaded JSON)
         inject_every_n = injection_metadata['training_config'].get('inject_every_n')
         config_defaults['inject_every_n'] = inject_every_n
+        config_defaults['injection_metadata'] = injection_metadata
         logger.info(f'Training with injection every {inject_every_n} steps')
 
         prepend = injection_metadata['training_config'].get('mode', 'prepend') == 'prepend'
@@ -189,8 +190,7 @@ if __name__ == '__main__':
 
             logger.info(f'Running training for group={group}')
 
-            keys_to_exclude = ['data', 'inject_data']  # example keys to exclude
-
+            keys_to_exclude = ['data', 'inject_data', 'injection_metadata']
             filtered_config = {k: v for k, v in config_defaults.items() if k not in keys_to_exclude}
 
             # Convert any NumPy arrays to lists if needed

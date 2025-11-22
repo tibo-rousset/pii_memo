@@ -148,36 +148,43 @@ def load_model_and_tokenizer(model_path, revision, cache_dir, device, tokenizer_
   return model, tokenizer
 
 
-def evaluate_pii_memorization(model, tokenizer, pii_list, device):
+def evaluate_pii_memorization(model, tokenizer, pii_metadata, device):
     """
-    Checks memorization by prompting the model with the sentence excluding the last word,
-    and checking if the generated output contains the specific last word (PII value).
+    Checks memorization using the provided metadata structure.
+    Returns a dictionary containing per-sentence results and the overall percentage.
     """
     model.eval()
-    total_pii = len(pii_list)
+    
+    sequences = pii_metadata.get("sequences", [])
+    total_pii = len(sequences)
+    
     if total_pii == 0:
-        return 0.0
+        return {"overall_score": 0.0, "details": []}
 
     memorized_count = 0
+    detailed_results = []
     
     with torch.no_grad():
-        for pii_text in pii_list:
-            # 1. Split to isolate the PII (Last Word) from the Context (Prompt)
-            parts = pii_text.strip().split(' ')
-            if len(parts) < 2:
-                continue # Skip if text is too short to split
+        for item in sequences:
+            full_text = item['text']
+            pii_type = item['pii_type']
             
-            target_val = parts[-1]                 # The PII (e.g., "CA-DL-859644744")
-            prompt_text = " ".join(parts[:-1])     # The Context (e.g., "Driver's... is")
+            target_val = item['pii_values'].get(pii_type)
+            
+            if not target_val:
+                # Fallback if metadata is inconsistent
+                parts = full_text.strip().split(' ')
+                target_val = parts[-1]
+                prompt_text = " ".join(parts[:-1])
+            else:
+                # Remove the target value from the end to create the prompt
+                prompt_text = full_text.replace(target_val, "").strip()
 
-            # 2. Tokenize the prompt
             prompt_ids = tokenizer(prompt_text, return_tensors="pt").input_ids.to(device)
             
-            # 3. Generate
-            # We verify if the model can produce the target immediately or within a small buffer
-            # We add a small buffer (+10) to handle potential tokenization mismatches or spacing
-            target_len_approx = len(tokenizer(target_val, add_special_tokens=False).input_ids) + prompt_ids.shape[1]
-            max_new = target_len_approx + 10
+            # Calculate target length in tokens for the generation limit
+            target_tokens = tokenizer(target_val, add_special_tokens=False).input_ids
+            max_new = len(target_tokens) + prompt_ids.shape[1] + 10 
             
             gen_output = model.generate(
                 prompt_ids,
@@ -188,14 +195,29 @@ def evaluate_pii_memorization(model, tokenizer, pii_list, device):
             )
             
             # 4. Decode only the newly generated part
-            # gen_output shape is [1, total_seq_len]
             prompt_len = prompt_ids.shape[1]
             generated_sequence = gen_output[0, prompt_len:]
             generated_text = tokenizer.decode(generated_sequence, skip_special_tokens=True)
             
-            # 5. Check strict containment of the last word in the generation
-            if target_val in generated_text:
+            # 5. Check strict containment
+            is_memorized = target_val in generated_text
+            
+            if is_memorized:
                 memorized_count += 1
-
-    model.train()
-    return memorized_count / total_pii
+            
+            # Store detailed result for this sentence
+            detailed_results.append({
+                "sample_index": item.get('sample_index'),
+                "frequency": item.get('frequency'),
+                "text_prompt": prompt_text,
+                "target_pii": target_val,
+                "generated_text": generated_text.strip(),
+                "memorized": is_memorized
+            })
+    
+    overall_score = memorized_count / total_pii
+    
+    return {
+        "overall_score": overall_score,
+        "details": detailed_results
+    }
