@@ -6,6 +6,7 @@ import json
 import numpy as np
 import os
 import torch
+import wandb
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
     parser.add_argument('--no_download', action='store_true', help='Skip downloading from Hugging Face Hub if not found locally')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
     args = parser.parse_args()
 
     if args.debug:
@@ -165,7 +167,21 @@ if __name__ == '__main__':
         logger.info('Running training without injection')
 
         config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}')
-        train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+
+        filtered_config = {k: v for k, v in config_defaults.items() if k != 'data'}
+
+        if args.wandb:
+            run = wandb.init(
+                entity="thibault-rousset-mcgill-university",
+                project="pii_memo",
+                config=filtered_config,
+                name=f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
+            )
+        else:
+            run = None
+
+
+        train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, wandb_run=run)
 
     else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
@@ -199,4 +215,15 @@ if __name__ == '__main__':
                     filtered_config[k] = v.tolist()
 
             logger.debug(f'Filtered Config (excluded keys): {json.dumps(filtered_config, indent=4)}')
-            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend)
+
+            if args.wandb:
+                run = wandb.init(
+                    entity="thibault-rousset-mcgill-university",
+                    project="pii_memo",
+                    name=f'{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                    config=filtered_config,
+                )
+            else:
+                run = None
+
+            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend, wandb_run=run)

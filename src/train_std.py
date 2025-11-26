@@ -47,7 +47,7 @@ def compute_token_accuracy(logits, labels):
   return mean_acc
 
 
-def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False):
+def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False, wandb_run=None):
   """Single-process simplified training loop mirroring the distributed logic.
 
   Expected keys in config (kept similar to distributed script):
@@ -228,6 +228,12 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   
     metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
 
+    if wandb_run is not None:
+      wandb_run.log({
+          'train_loss': float(loss.float().detach().cpu().mean()),
+          'epoch': epoch,
+      })
+
     pbar.set_postfix(train_loss=f'{loss:.3e}')
     del loss, logits, labels
 
@@ -300,6 +306,18 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
       metrics_logger['pii_accuracy'].append(val_metrics['pii_accuracy'])
       metrics_logger['pii_loss'].append(val_metrics['pii_loss'])
+
+      # Log to wandb if available
+      if wandb_run is not None:
+        wandb_run.log({
+            'val_loss': val_metrics['validation_loss'],
+            'token_accuracy': val_metrics['token_accuracy'],
+            'pii_loss': val_metrics['pii_loss'],
+            'pii_accuracy': val_metrics['pii_accuracy'],
+            'learning_rate': last_lr_val,
+            'step': step + 1,
+            'epoch': epoch,
+        })
     
     # --- 4. Memorization Check (Based on Injection Cycle) ---
         
@@ -320,6 +338,13 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       
       logger.info(f"Memorization Score at Step {step+1}: {score:.2%}")
 
+      if wandb_run is not None:
+        wandb_run.log({
+            'memorization_score': score,
+            'step': step + 1,
+            'epoch': epoch,
+        })
+
     if save_freq is not None and (step + 1) % save_freq == 0:
         checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
         save_checkpoint(
@@ -331,7 +356,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             loss=float(metrics_logger['train_loss'][-1]),
             filepath=checkpoint_path,
             scheduler=lr_scheduler,
-            keep_last_n=3
+            keep_last_n=config.get('keep_last_n', 1)
         )
 
     if max_steps is not None and step >= int(max_steps):
