@@ -48,11 +48,18 @@ def load_and_fill_templates(config):
     
     # Load dataset
     try:
-        ds = load_dataset(
-            dataset_config['dataset_name'],
-            cache_dir=dataset_config.get('cache_dir', None),
-            
-        )
+        if 'filepath' in dataset_config:
+            ds = load_dataset(
+                'parquet',
+                data_files=dataset_config['filepath'],
+                cache_dir=dataset_config.get('cache_dir', None),
+            )
+        else:
+            ds = load_dataset(
+                dataset_config['dataset_name'],
+                cache_dir=dataset_config.get('cache_dir', None),
+
+            )
         print(f"✓ Dataset loaded: {dataset_config['dataset_name']}")
     except Exception as e:
         print(f"✗ Error loading dataset: {e}")
