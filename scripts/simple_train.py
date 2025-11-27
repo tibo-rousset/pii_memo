@@ -171,16 +171,20 @@ if __name__ == '__main__':
         filtered_config = {k: v for k, v in config_defaults.items() if k != 'data'}
 
         if args.wandb:
-            run = wandb.init(
-                entity="thibault-rousset-mcgill-university",
-                project="pii_memo",
-                config=filtered_config,
-                name=f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
-                mode="offline"
-            )
+            try:
+                run = wandb.init(
+                    mode="offline",
+                    entity="thibault-rousset-mcgill-university",
+                    project="pii_memo",
+                    config=filtered_config,
+                    name=f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                    settings=wandb.Settings(start_method="fork", init_timeout=200)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Weights & Biases run: {e}")
+                run = None
         else:
             run = None
-
 
         train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, wandb_run=run)
 
@@ -218,13 +222,18 @@ if __name__ == '__main__':
             logger.debug(f'Filtered Config (excluded keys): {json.dumps(filtered_config, indent=4)}')
 
             if args.wandb:
-                run = wandb.init(
-                    entity="thibault-rousset-mcgill-university",
-                    project="pii_memo",
-                    name=f'{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
-                    config=filtered_config,
-                    mode="offline"
-                )
+                try:
+                    run = wandb.init(
+                        mode="offline",
+                        entity="thibault-rousset-mcgill-university",
+                        project="pii_memo",
+                        name=f'{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                        config=filtered_config,
+                        settings=wandb.Settings(start_method="fork", init_timeout=200)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Weights & Biases run: {e}")
+                    run = None
             else:
                 run = None
 
