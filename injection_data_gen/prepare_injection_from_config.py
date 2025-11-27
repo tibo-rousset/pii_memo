@@ -18,7 +18,7 @@ import os
 from datasets import load_dataset
 
 
-def load_and_fill_templates(config):
+def load_and_fill_templates(config, filepath=None):
     """Load dataset and fill templates with real PII data."""
     dataset_config = config['dataset_config']
     training_config = config['training_config']
@@ -48,11 +48,11 @@ def load_and_fill_templates(config):
     
     # Load dataset
     try:
-        if 'filepath' in dataset_config:
-            print("✓ Loading dataset from local file...")
+        if filepath is not None:
+            print(f"✓ Loading dataset from local file: {filepath}...")
             ds = load_dataset(
                 'parquet',
-                data_files=dataset_config['filepath'],
+                data_files=filepath,
                 cache_dir=dataset_config.get('cache_dir', None),
             )
         else:
@@ -266,6 +266,8 @@ def main():
                        help='Output path for training JSON')
     parser.add_argument('--group-name', type=str, default='pii_sequences',
                        help='Name for the injection group (default: pii_sequences)')
+    parser.add_argument('--filepath', type=str, default=None, 
+                       help='Path to local dataset file (optional)')
     
     args = parser.parse_args()
     
@@ -275,7 +277,7 @@ def main():
     
     # Step 1: Load dataset and fill templates
     print("\n[1/4] Loading dataset and filling templates...")
-    filled_sequences = load_and_fill_templates(config)
+    filled_sequences = load_and_fill_templates(config, args.filepath)
     if filled_sequences is None:
         return
     
