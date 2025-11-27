@@ -49,12 +49,14 @@ def load_and_fill_templates(config):
     # Load dataset
     try:
         if 'filepath' in dataset_config:
+            print("✓ Loading dataset from local file...")
             ds = load_dataset(
                 'parquet',
                 data_files=dataset_config['filepath'],
                 cache_dir=dataset_config.get('cache_dir', None),
             )
         else:
+            print("✓ Loading dataset from Hugging Face Hub...")
             ds = load_dataset(
                 dataset_config['dataset_name'],
                 cache_dir=dataset_config.get('cache_dir', None),
