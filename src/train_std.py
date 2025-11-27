@@ -365,4 +365,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   # Save model and metrics
   model.save_pretrained(f'{log_path_base}_final')
   torch.save(metrics_logger, f'{log_path_base}_metrics.pt')
+  if wandb_run is not None:
+    wandb_run.finish()
   return model, metrics_logger

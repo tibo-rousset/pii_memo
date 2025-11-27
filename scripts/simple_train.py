@@ -176,6 +176,7 @@ if __name__ == '__main__':
                 project="pii_memo",
                 config=filtered_config,
                 name=f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                mode="offline"
             )
         else:
             run = None
@@ -222,6 +223,7 @@ if __name__ == '__main__':
                     project="pii_memo",
                     name=f'{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
                     config=filtered_config,
+                    mode="offline"
                 )
             else:
                 run = None
