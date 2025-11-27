@@ -31,7 +31,7 @@ def load_and_fill_templates(config, filepath=None):
         frequencies = training_config.get('frequency', [])
         if not frequencies:
             raise ValueError("frequency_comparison mode requires 'frequency' list")
-        num_samples_per_type = len(frequencies)
+        num_samples_per_type = len(frequencies) if training_config.get('num_samples_per_type') is None else training_config.get('num_samples_per_type')
         print(f"✓ Mode: Frequency Comparison")
         print(f"✓ Using {num_samples_per_type} samples per type with frequencies: {frequencies}")
     elif mode == 'single_frequency':
