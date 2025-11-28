@@ -231,7 +231,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     if wandb_run is not None:
       wandb_run.log({
           'train_loss': float(loss.float().detach().cpu().mean()),
-          'epoch': epoch,
       })
 
     pbar.set_postfix(train_loss=f'{loss:.3e}')
@@ -315,8 +314,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             'pii_loss': val_metrics['pii_loss'],
             'pii_accuracy': val_metrics['pii_accuracy'],
             'learning_rate': last_lr_val,
-            'step': step + 1,
-            'epoch': epoch,
         })
     
     # --- 4. Memorization Check (Based on Injection Cycle) ---
@@ -341,8 +338,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       if wandb_run is not None:
         wandb_run.log({
             'memorization_score': score,
-            'step': step + 1,
-            'epoch': epoch,
         })
 
     if save_freq is not None and (step + 1) % save_freq == 0:

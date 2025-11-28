@@ -20,6 +20,7 @@ MEM_LIB_DIR = f'src'
 sys.path.append(MEM_LIB_DIR)
 
 from train_std import train_simple_model, load_model_and_tokenizer, set_seed
+from utils import save_checkpoint, set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ if __name__ == '__main__':
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging is enabled.")
+
+    set_seed(args.seed)
 
     config_defaults = json.load(open(args.config_file, 'r'))
 

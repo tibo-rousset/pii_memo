@@ -9,12 +9,41 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def set_seed(seed): 
-  random.seed(seed)
-  np.random.seed(seed)
-  torch.manual_seed(seed)
-  if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed)
+def set_seed(seed: int = 42):
+    """
+    Sets the seed for reproducibility across various libraries:
+    - Python's built-in random
+    - NumPy
+    - PyTorch (CPU and CUDA)
+    - Hugging Face Transformers
+    
+    Also configures PyTorch for deterministic execution (may impact performance).
+    
+    Args:
+        seed (int): The seed value to use.
+    """
+
+    random.seed(seed)
+    
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    np.random.seed(seed)
+    
+    torch.manual_seed(seed)
+    
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    try:
+        from transformers import set_seed as hf_set_seed
+        hf_set_seed(seed)
+    except ImportError:
+        pass
+        
+    logger.info(f"Global seed set to {seed}")
 
 
 def count_parameters(model):
