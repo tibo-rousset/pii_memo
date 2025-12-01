@@ -202,6 +202,12 @@ This brittleness suggests several important insights about the memorization mech
 4. **No head-level analysis**: Testing full attention layers, not individual heads
 5. **Teacher forcing assumption**: Results measure probability of specific PII, not generation quality
 6. **Prompt sensitivity**: Memorization is extremely brittle to minor prompt variations (see above)
+7. **Unresolved: Patching during autoregressive generation**: Because PII spans multiple tokens (typically 3-5 tokens), the current implementation cannot patch once and then let the model freely generate. The patched activations only affect the immediate next token prediction. Potential solution: prefix cached activations from the prompt with newly generated token activations, but this approach currently encounters errors (likely shape mismatches or attention mechanism issues). Current workaround:
+   - Re-patch at every token position during generation
+   - Use teacher forcing (append target tokens, not generated tokens)
+   - This means activation patching cannot directly test "natural generation" - only probability of known sequences
+   - This is why we use teacher-forced log probability rather than greedy generation accuracy
+   - **Future work**: Debug the prefix-caching approach to enable patched autoregressive generation
 
 ## Next Steps
 
