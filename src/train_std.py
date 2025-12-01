@@ -177,13 +177,49 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   epoch = 0
   metrics_logger = collections.defaultdict(list)
 
-  # Early stopping based on memorization score: number of consecutive
-  # memorization cycles where overall_score == 100% required to stop.
   early_stop_cycles = config.get('early_stop', None)
   mem_perfect_count = 0
 
   warmup_steps = len(warmup_dataloader)
   warmup_iter = iter(warmup_dataloader)
+
+  logger.info("First validation run...")
+  # Initial validation before training
+  model.eval()
+  val_metrics = collections.defaultdict(list)
+  # --- 1. Compute Val Loss and Token Accuracy on Val Set ---
+  with torch.no_grad():
+    for val_input_batch in val_dataloader:
+      for k in val_input_batch:
+        val_input_batch[k] = val_input_batch[k].to(device)
+      
+      loss, logits, labels = lm_train_step(model, val_input_batch)
+      
+      acc = compute_token_accuracy(logits, labels)
+      
+      val_metrics['validation_loss'].append(loss.float().detach().cpu().mean())
+      val_metrics['token_accuracy'].append(acc.detach().cpu())
+      
+      del loss, logits, labels, acc
+
+    for key in val_metrics:
+      val_metrics[key] = float(np.array(val_metrics[key]).mean())
+
+    logger.info(
+          "Validation Loss: %.4f, Token Accuracy: %.4f",
+          val_metrics['validation_loss'],
+          val_metrics['token_accuracy']
+      )
+    
+    metrics_logger['val_loss'].append(val_metrics['validation_loss'])
+    metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
+
+    # Log to wandb if available
+    if wandb_run is not None:
+      wandb_run.log({
+          'val_loss': val_metrics['validation_loss'],
+          'token_accuracy': val_metrics['token_accuracy'],
+      })
 
   logger.info("Beginning warmup phase...")
   # Warmup phase
@@ -347,7 +383,6 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
       if early_stop_cycles is not None:
         try:
-          # Consider score==1.0 (100%) as full memorization
           if score >= 1.0:
             mem_perfect_count += 1
           else:
