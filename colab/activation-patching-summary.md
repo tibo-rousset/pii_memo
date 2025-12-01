@@ -154,29 +154,81 @@ Testing **85 layers** (excluding LayerNorm for efficiency):
 
 **Solution**: Always use greedy generation from target model to establish ground truth PII, then tokenize that exact string.
 
+## Surprising Finding: Brittleness of Memorization
+
+A critical observation reveals the **extreme fragility** of PII memorization:
+
+**Test case**:
+- ✅ `"Email address of Michele Moran is"` → `michelemoran@aol.com` (correct PII)
+- ❌ `"Email address of Michele Moran is "` (with trailing space) → completely different output
+
+**A single trailing space completely breaks memorization.**
+
+### Interpretation
+
+This brittleness suggests several important insights about the memorization mechanism:
+
+1. **Surface-level pattern matching**: The model has memorized very specific token sequences, not semantic understanding of the task. The memorization is essentially a form of sophisticated pattern completion.
+
+2. **Tokenization sensitivity**: The extra space likely changes the tokenization of subsequent tokens or affects positional encodings. Since transformer models operate on discrete tokens and positions, even minor tokenization differences propagate through the network.
+
+3. **Attention pattern specificity**: Layer 0 attention patterns (our strongest signal) are probably keyed to very specific positional and token patterns. When the pattern doesn't match exactly, the attention mechanism fails to "look up" the memorized PII.
+
+4. **Lack of robustness**: Unlike semantic understanding, which would handle minor variations gracefully, memorization appears to be a brittle lookup mechanism that requires exact pattern matches.
+
+5. **MLP key-value storage hypothesis**: If Layer 3 MLPs act as key-value stores (as our results suggest), they may use very specific activation patterns as "keys." A single space changes these activation patterns enough to prevent retrieval.
+
+### Implications
+
+**For Safety**:
+- ✅ Easy evasion: Simple prompt variations could prevent memorized PII leakage
+- ❌ Hard to detect: Automated detection would need to test many prompt variations
+
+**For Understanding**:
+- Memorization ≠ generalization
+- The model hasn't learned a general "PII recall" capability
+- Instead, it's learned very specific prompt → PII mappings
+
+**For Future Work**:
+- Need to test robustness across prompt variations
+- Investigate whether memorization can be made more robust with different training
+- Understand the exact tokenization/positional differences that break memorization
+
 ## Limitations & Caveats
 
-1. **Single test case**: Currently only analyzing one PII example
+1. **Single test case**: Currently only analyzing one PII example (though brittleness observation tested on multiple)
 2. **Computational cost**: Per-step caching is 4× slower than single-cache approach
 3. **Aggregate metrics**: Looking at sequence-level log prob, not token-level effects
 4. **No head-level analysis**: Testing full attention layers, not individual heads
 5. **Teacher forcing assumption**: Results measure probability of specific PII, not generation quality
+6. **Prompt sensitivity**: Memorization is extremely brittle to minor prompt variations (see above)
 
 ## Next Steps
 
 ### Immediate Analysis
-1. **Test multiple PII samples** across different:
+
+1. **Investigate memorization brittleness** (HIGH PRIORITY):
+   - Systematically test prompt variations (trailing spaces, punctuation, capitalization)
+   - Measure how tokenization differences affect activation patterns
+   - Compare Layer 0 attention patterns for working vs broken prompts
+   - Quantify the "tolerance" of memorization to prompt perturbations
+   - **Goal**: Understand why single character changes break memorization
+
+2. **Test multiple PII samples** across different:
    - Frequencies (10 vs 20 repetitions)
    - PII types (email, passport, driver's license, ID)
    - Memorization success (compare memorized vs non-memorized samples)
+   - **Prompt variations** to test robustness
 
-2. **Token-level analysis**:
+3. **Token-level analysis**:
    - Which tokens benefit most from patching?
    - Does layer importance vary by position in PII sequence?
+   - How does tokenization of trailing space affect position encodings?
 
-3. **Component interaction**:
+4. **Component interaction**:
    - What happens when patching multiple layers simultaneously?
    - Are effects additive or interactive?
+   - Can we restore broken memorization by patching Layer 0 + Layer 3?
 
 ### Deeper Mechanistic Interpretability
 
@@ -208,22 +260,44 @@ Testing **85 layers** (excluding LayerNorm for efficiency):
    - Is memorization stored in attention patterns (lookup mechanism)?
    - Or in MLP weights (key-value storage)?
    - Or distributed across both?
+   - **Given brittleness**: How exact must the "key" pattern be for retrieval?
+   - Can we visualize the "search space" that triggers memorization?
 
 10. **Frequency dependence**:
     - How do activation patterns differ between frequency 10 vs 20?
     - Is there a qualitative shift at the memorization threshold?
+    - Does higher frequency training create more robust memorization?
 
-11. **Generalization**:
+11. **Generalization vs. Memorization**:
     - Do findings generalize to other memorized content (not just PII)?
     - Do findings generalize to larger models?
+    - **Key question**: Can memorization ever become robust, or is brittleness fundamental?
+    - How does this brittleness compare to semantic understanding in models?
 
 12. **Safety implications**:
     - Can we develop interventions to prevent memorization?
     - Can we detect memorization without access to training data?
+    - **Evasion**: How easy is it to extract memorized data with prompt engineering?
+    - **Defense**: Can we exploit brittleness to prevent PII leakage?
 
 ## Conclusion
 
-This activation patching analysis reveals that **PII memorization in this model is primarily driven by early-layer attention mechanisms** (especially Layer 0) and **mid-layer MLPs** (especially Layer 3). The strong negative effect of patching residual streams suggests that memorization creates a distinct computational pathway that diverges from normal language modeling.
+This activation patching analysis reveals three key findings about PII memorization:
 
-The per-step caching methodology with teacher-forced log probability evaluation provides a robust framework for identifying causally important components, despite being computationally expensive. Next steps should focus on testing generalization across multiple samples and deeper analysis of the identified components (Layer 0 attention and Layer 3 MLP) to understand the precise mechanisms of PII storage and recall.
+1. **Localization**: PII memorization is primarily driven by **early-layer attention mechanisms** (especially Layer 0) and **mid-layer MLPs** (especially Layer 3). The strong negative effect of patching residual streams suggests that memorization creates a distinct computational pathway that diverges from normal language modeling.
+
+2. **Brittleness**: Memorization is **extremely fragile** to minor prompt variations. A single trailing space completely breaks PII recall, suggesting that memorization operates through exact pattern matching rather than semantic understanding. This brittleness provides crucial insights:
+   - Memorization likely uses Layer 0 attention as a position/token-specific "lookup" mechanism
+   - Layer 3 MLPs may act as key-value stores with very narrow activation patterns
+   - The mechanism is fundamentally different from robust semantic knowledge
+
+3. **Methodology**: The per-step caching approach with teacher-forced log probability evaluation provides a robust framework for identifying causally important components, despite being computationally expensive.
+
+### Critical Open Questions
+
+- **Why is memorization so brittle?** Understanding the tokenization/positional encoding sensitivity could reveal fundamental insights about how transformers store exact sequences vs. semantic knowledge.
+- **Can brittleness be exploited?** For defense (preventing leakage) or attack (extracting memorized data)?
+- **What makes Layer 0 attention special?** Why does the earliest layer have the strongest memorization signal?
+
+Next steps should prioritize investigating memorization brittleness through systematic prompt variation experiments, followed by deeper analysis of Layer 0 attention patterns and Layer 3 MLP activations to understand the precise mechanisms of PII storage and recall.
 
