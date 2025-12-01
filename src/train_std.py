@@ -177,6 +177,11 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   epoch = 0
   metrics_logger = collections.defaultdict(list)
 
+  # Early stopping based on memorization score: number of consecutive
+  # memorization cycles where overall_score == 100% required to stop.
+  early_stop_cycles = config.get('early_stop', None)
+  mem_perfect_count = 0
+
   warmup_steps = len(warmup_dataloader)
   warmup_iter = iter(warmup_dataloader)
 
@@ -339,6 +344,22 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
         wandb_run.log({
             'memorization_score': score,
         })
+
+      if early_stop_cycles is not None:
+        try:
+          # Consider score==1.0 (100%) as full memorization
+          if score >= 1.0:
+            mem_perfect_count += 1
+          else:
+            mem_perfect_count = 0
+        except Exception:
+          mem_perfect_count = 0
+
+        if mem_perfect_count >= early_stop_cycles:
+          logger.info(
+              f"Early stopping triggered: memorization_score {score:.2%} for {mem_perfect_count} consecutive checks."
+          )
+          break
 
     if save_freq is not None and (step + 1) % save_freq == 0:
         checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
