@@ -158,6 +158,32 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
   # Model, optimizer & scheduler
   model, _ = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device)
+  
+  # Freeze input (token) embeddings and output (unembedding / lm head) so they are not updated.
+  input_emb = None
+  output_emb = None
+  try:
+    input_emb = model.get_input_embeddings()
+  except Exception:
+    pass
+
+  try:
+    output_emb = model.get_output_embeddings()
+  except Exception:
+    pass
+
+  if input_emb is not None:
+    for p in input_emb.parameters():
+      p.requires_grad = False
+
+  if output_emb is not None and output_emb is not input_emb:
+    for p in output_emb.parameters():
+      p.requires_grad = False
+
+  logger.info("Embedding freeze applied. input_emb=%s, output_emb=%s",
+        "yes" if input_emb is not None else "no",
+        "yes" if output_emb is not None else "no")
+
   logger.info('#layers=%d' % model.config.num_hidden_layers)
   logger.info('Device: %s' % device)
 
