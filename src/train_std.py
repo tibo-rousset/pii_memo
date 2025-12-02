@@ -165,11 +165,13 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   try:
     input_emb = model.get_input_embeddings()
   except Exception:
+    logger.warning("Input embeddings NOT frozen!")
     pass
 
   try:
     output_emb = model.get_output_embeddings()
   except Exception:
+    logger.warning("Output embeddings NOT frozen!")
     pass
 
   if input_emb is not None:
