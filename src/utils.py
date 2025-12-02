@@ -46,14 +46,6 @@ def set_seed(seed: int = 42):
     logger.info(f"Global seed set to {seed}")
 
 
-def count_parameters(model):
-  return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-def count_optimizer_parameters(optimizer):
-  return sum(p.numel() for p in optimizer.param_groups[0]['params'])
-
-
 def lm_train_step(model, input_batch):
   labels = input_batch['input_ids'].clone()
   outputs = model(input_ids=input_batch['input_ids'], labels=labels)

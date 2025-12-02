@@ -6,7 +6,7 @@ import random
 import logging
 
 from memorization_utils import compute_per_token_pplx, get_memorized_sequences
-from utils import set_seed, lm_train_step, count_parameters, count_optimizer_parameters, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization
+from utils import set_seed, lm_train_step, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization
 from nparray_dataset import NumpyArrayDataset
 import torch
 from transformers import get_scheduler
@@ -189,7 +189,12 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
   logger.info('Initial lr=%.2e' % config['init_lr'])
   optimizer = torch.optim.AdamW(model.parameters(), lr=config['init_lr'])
-  logger.info('Model parameters: %d, Optimizer parameters: %d' % (count_parameters(model), count_optimizer_parameters(optimizer)))
+
+  all_params = sum(p.numel() for p in model.parameters())
+  trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+  opt_params = sum(p.numel() for p in optimizer.param_groups[0]['params'])
+
+  logger.info('Model parameters: %d, Trainable parameters: %d, Optimizer parameters: %d' % (all_params, trainable_params, opt_params))
 
   num_epochs = config.get('num_epochs', 1)
   save_freq = config.get('save_freq', None)
