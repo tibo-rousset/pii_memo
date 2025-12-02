@@ -425,7 +425,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
         if mem_perfect_count >= early_stop_cycles:
           logger.info(
-              f"Early stopping triggered: memorization_score {score:.2%} for {mem_perfect_count} consecutive checks."
+              f"Early stopping triggered at step {step+1}: memorization_score {score:.2%} for {mem_perfect_count} consecutive checks."
           )
           break
 
@@ -443,7 +443,8 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             keep_last_n=config.get('keep_last_n', 1)
         )
 
-    if max_steps is not None and step >= int(max_steps):
+    if max_steps is not None and (step+1) >= int(max_steps):
+      logger.info(f"Max steps reached at step {step+1}. Stopping training.")
       break
 
   # Save model and metrics
