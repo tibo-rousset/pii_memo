@@ -180,7 +180,7 @@ if __name__ == '__main__':
                     entity="thibault-rousset-mcgill-university",
                     project="pii_memo",
                     config=filtered_config,
-                    name=f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                    name=f'{model_id}-no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
                     settings=wandb.Settings(start_method="fork", init_timeout=200)
                 )
             except Exception as e:
@@ -230,7 +230,7 @@ if __name__ == '__main__':
                         mode="offline",
                         entity="thibault-rousset-mcgill-university",
                         project="pii_memo",
-                        name=f'{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                        name=f'{model_id}-{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
                         config=filtered_config,
                         settings=wandb.Settings(start_method="fork", init_timeout=200)
                     )
