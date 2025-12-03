@@ -91,14 +91,14 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   warmup_dataloader = torch.utils.data.DataLoader(
       warmup_dataset, 
       batch_size=config['training_batch_size'], 
-      shuffle=True,
+      shuffle=False,
       num_workers=num_cpus,
       pin_memory=True)
 
   train_dataloader = torch.utils.data.DataLoader(
       train_dataset, 
       batch_size=config['training_batch_size'], 
-      shuffle=True,
+      shuffle=False,
       num_workers=num_cpus,
       pin_memory=True)
   
