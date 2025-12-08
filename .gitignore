@@ -7,3 +7,5 @@ models
 logs
 *.csv
 *.npy
+*.png
+*.html
