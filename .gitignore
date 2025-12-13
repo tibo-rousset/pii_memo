@@ -5,3 +5,7 @@ models
 .vscode
 .DS_Store
 logs
+*.csv
+*.npy
+*.png
+*.html
