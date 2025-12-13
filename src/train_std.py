@@ -47,14 +47,7 @@ def compute_token_accuracy(logits, labels):
 
 
 def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False, wandb_run=None):
-  """Single-process simplified training loop mirroring the distributed logic.
-
-  Expected keys in config (kept similar to distributed script):
-    - base_model, model_dir, base_model_path, data, training_sample_range, eval_sample_range
-    - inject_data, inject_every_n, window_size
-    - training_batch_size, eval_batch_size, init_lr, log_dir
-    - run_eval (bool), single_shot_step (optional), total_number_inject
-  """
+  """Single-process simplified training loop mirroring the distributed logic."""
   set_seed(seed)
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   log_path_base = config['log_dir']
@@ -428,8 +421,18 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
           )
           break
 
+    # --- 5. Checkpointing ---
+
     if save_freq is not None and (step + 1) % save_freq == 0:
-        checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
+        # Updated Logic: If output_dir is present, save checkpoint in the specific subfolder
+        if config.get('output_dir'):
+            save_root = os.path.join(log_path_base, config['output_dir'])
+            os.makedirs(save_root, exist_ok=True)
+            checkpoint_path = os.path.join(save_root, f'checkpoint_step{step + 1}.pt')
+        else:
+            # Fallback to original behavior
+            checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
+
         save_checkpoint(
             model=model,
             optimizer=optimizer,
@@ -446,9 +449,24 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       logger.info(f"Max steps reached at step {step+1}. Stopping training.")
       break
 
-  # Save model and metrics
-  model.save_pretrained(f'{log_path_base}_final')
-  torch.save(metrics_logger, f'{log_path_base}_metrics.pt')
+  # --- Final Save ---
+  if config.get('output_dir'):
+      save_root = os.path.join(log_path_base, config['output_dir'])
+      os.makedirs(save_root, exist_ok=True)
+      
+      model_final_path = os.path.join(save_root, 'final_model')
+      metrics_path = os.path.join(save_root, 'metrics.pt')
+  else:
+      model_final_path = config.get('output_path', f'{log_path_base}_final.pt')
+      metrics_path = f'{log_path_base}_metrics.pt'
+
+  logger.info(f"Saving final model to {model_final_path}")
+  model.save_pretrained(model_final_path)
+  
+  logger.info(f"Saving metrics to {metrics_path}")
+  torch.save(metrics_logger, metrics_path)
+  
   if wandb_run is not None:
     wandb_run.finish()
+    
   return model, metrics_logger
