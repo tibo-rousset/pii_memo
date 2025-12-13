@@ -5,8 +5,7 @@ import os
 import random
 import logging
 
-from memorization_utils import compute_per_token_pplx, get_memorized_sequences
-from utils import set_seed, lm_train_step, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization
+from utils import set_seed, lm_train_step, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization, get_num_workers
 from nparray_dataset import NumpyArrayDataset
 import torch
 from transformers import get_scheduler
@@ -85,7 +84,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     window_size=config['window_size'])
 
   # Get number of CPUs from Slurm, default to 1 if not set
-  num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
+  num_cpus = get_num_workers()
   logger.info(f"Using {num_cpus} dataloader workers.")
 
   warmup_dataloader = torch.utils.data.DataLoader(

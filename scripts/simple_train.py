@@ -8,6 +8,8 @@ import os
 import torch
 import wandb
 
+torch.use_deterministic_algorithms(True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",

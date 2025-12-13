@@ -9,6 +9,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def get_num_workers() -> int:
+    """Gets the optimal number of DatLoader workers to use in the current job."""
+    if "SLURM_CPUS_PER_TASK" in os.environ:
+        return int(os.environ["SLURM_CPUS_PER_TASK"])
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return torch.multiprocessing.cpu_count()
+
 def set_seed(seed: int = 42):
     """
     Sets the seed for reproducibility across various libraries:
@@ -41,6 +49,7 @@ def set_seed(seed: int = 42):
         from transformers import set_seed as hf_set_seed
         hf_set_seed(seed)
     except ImportError:
+        logger.warning("Transformers library not found; skipping its seed setting.")
         pass
         
     logger.info(f"Global seed set to {seed}")
