@@ -6,6 +6,9 @@ import json
 import numpy as np
 import os
 import torch
+import wandb
+
+torch.use_deterministic_algorithms(True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,14 +22,15 @@ MEM_LIB_DIR = f'src'
 sys.path.append(MEM_LIB_DIR)
 
 from train_std import train_simple_model, load_model_and_tokenizer, set_seed
+from utils import save_checkpoint, set_seed
 
 logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_file', type=str, default='train_config.json')
-    parser.add_argument('--max_steps', type=int, help='Maximum number of training steps to run')
     parser.add_argument('--inject_sequence_ids', nargs='+', default=[], help='Keys of injection groups to run')
+    parser.add_argument('--max_steps', type=int, default=None)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--pile_data_path',  nargs='+', default=['data/indicies.npy'])
     parser.add_argument('--injection_data_path', type=str, default='')
@@ -35,11 +39,14 @@ if __name__ == '__main__':
     parser.add_argument('--no_eval', action='store_true', help='Disable evaluation during training')
     parser.add_argument('--no_download', action='store_true', help='Skip downloading from Hugging Face Hub if not found locally')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
     args = parser.parse_args()
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging is enabled.")
+
+    set_seed(args.seed)
 
     config_defaults = json.load(open(args.config_file, 'r'))
 
@@ -165,7 +172,26 @@ if __name__ == '__main__':
         logger.info('Running training without injection')
 
         config_defaults['log_dir'] = os.path.join(model_dir, task_name, f'no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}')
-        train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed)
+
+        filtered_config = {k: v for k, v in config_defaults.items() if k != 'data'}
+
+        if args.wandb:
+            try:
+                run = wandb.init(
+                    mode="offline",
+                    entity="thibault-rousset-mcgill-university",
+                    project="pii_memo",
+                    config=filtered_config,
+                    name=f'{model_id}-no_inject_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                    settings=wandb.Settings(start_method="fork", init_timeout=200)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Weights & Biases run: {e}")
+                run = None
+        else:
+            run = None
+
+        train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, wandb_run=run)
 
     else:
     # Run once per requested injection group (expects matching keys in the loaded JSON)
@@ -199,4 +225,21 @@ if __name__ == '__main__':
                     filtered_config[k] = v.tolist()
 
             logger.debug(f'Filtered Config (excluded keys): {json.dumps(filtered_config, indent=4)}')
-            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend)
+
+            if args.wandb:
+                try:
+                    run = wandb.init(
+                        mode="offline",
+                        entity="thibault-rousset-mcgill-university",
+                        project="pii_memo",
+                        name=f'{model_id}-{group}_bs{int(config_defaults["training_batch_size"]*world_size)}',
+                        config=filtered_config,
+                        settings=wandb.Settings(start_method="fork", init_timeout=200)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Weights & Biases run: {e}")
+                    run = None
+            else:
+                run = None
+
+            train_simple_model(config_defaults, max_steps=args.max_steps, val_freq=args.val_freq, seed=args.seed, prepend=prepend, wandb_run=run)

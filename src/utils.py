@@ -9,20 +9,50 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def set_seed(seed): 
-  random.seed(seed)
-  np.random.seed(seed)
-  torch.manual_seed(seed)
-  if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed)
+def get_num_workers() -> int:
+    """Gets the optimal number of DatLoader workers to use in the current job."""
+    if "SLURM_CPUS_PER_TASK" in os.environ:
+        return int(os.environ["SLURM_CPUS_PER_TASK"])
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return torch.multiprocessing.cpu_count()
 
+def set_seed(seed: int = 42):
+    """
+    Sets the seed for reproducibility across various libraries:
+    - Python's built-in random
+    - NumPy
+    - PyTorch (CPU and CUDA)
+    - Hugging Face Transformers
+    
+    Also configures PyTorch for deterministic execution (may impact performance).
+    
+    Args:
+        seed (int): The seed value to use.
+    """
 
-def count_parameters(model):
-  return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    random.seed(seed)
+    
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    np.random.seed(seed)
+    
+    torch.manual_seed(seed)
+    
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
 
-
-def count_optimizer_parameters(optimizer):
-  return sum(p.numel() for p in optimizer.param_groups[0]['params'])
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    try:
+        from transformers import set_seed as hf_set_seed
+        hf_set_seed(seed)
+    except ImportError:
+        logger.warning("Transformers library not found; skipping its seed setting.")
+        pass
+        
+    logger.info(f"Global seed set to {seed}")
 
 
 def lm_train_step(model, input_batch):
@@ -67,12 +97,9 @@ def save_checkpoint(model, optimizer, epoch, step, metrics_logger, loss, filepat
     logger.info(f"Checkpoint saved at '{filepath}' (Step {step})")
 
     # 3. Checkpoint Rotation: Delete old checkpoints to save disk space
-    # Assumes filename format ends with "_step{step}.pt"
-    if keep_last_n > 0:
+    if keep_last_n is not None and keep_last_n > 0:
         base_name = filepath.rsplit('_step', 1)[0]
-        # Find all files matching the pattern
         existing_checkpoints = glob.glob(f"{base_name}_step*.pt")
-        # Sort by creation time (or step number if you parse string)
         existing_checkpoints.sort(key=os.path.getmtime)
         
         # Remove oldest if we have more than N

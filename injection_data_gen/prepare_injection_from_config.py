@@ -18,7 +18,7 @@ import os
 from datasets import load_dataset
 
 
-def load_and_fill_templates(config):
+def load_and_fill_templates(config, filepath=None):
     """Load dataset and fill templates with real PII data."""
     dataset_config = config['dataset_config']
     training_config = config['training_config']
@@ -31,7 +31,7 @@ def load_and_fill_templates(config):
         frequencies = training_config.get('frequency', [])
         if not frequencies:
             raise ValueError("frequency_comparison mode requires 'frequency' list")
-        num_samples_per_type = len(frequencies)
+        num_samples_per_type = len(frequencies) if training_config.get('num_samples_per_type') is None else training_config.get('num_samples_per_type')
         print(f"✓ Mode: Frequency Comparison")
         print(f"✓ Using {num_samples_per_type} samples per type with frequencies: {frequencies}")
     elif mode == 'single_frequency':
@@ -48,10 +48,20 @@ def load_and_fill_templates(config):
     
     # Load dataset
     try:
-        ds = load_dataset(
-            dataset_config['dataset_name'],
-            cache_dir=dataset_config.get('cache_dir', None)
-        )
+        if filepath is not None:
+            print(f"✓ Loading dataset from local file: {filepath}...")
+            ds = load_dataset(
+                'parquet',
+                data_files=filepath,
+                cache_dir=dataset_config.get('cache_dir', None),
+            )
+        else:
+            print("✓ Loading dataset from Hugging Face Hub...")
+            ds = load_dataset(
+                dataset_config['dataset_name'],
+                cache_dir=dataset_config.get('cache_dir', None),
+
+            )
         print(f"✓ Dataset loaded: {dataset_config['dataset_name']}")
     except Exception as e:
         print(f"✗ Error loading dataset: {e}")
@@ -256,6 +266,8 @@ def main():
                        help='Output path for training JSON')
     parser.add_argument('--group-name', type=str, default='pii_sequences',
                        help='Name for the injection group (default: pii_sequences)')
+    parser.add_argument('--filepath', type=str, default=None, 
+                       help='Path to local dataset file (optional)')
     
     args = parser.parse_args()
     
@@ -265,7 +277,7 @@ def main():
     
     # Step 1: Load dataset and fill templates
     print("\n[1/4] Loading dataset and filling templates...")
-    filled_sequences = load_and_fill_templates(config)
+    filled_sequences = load_and_fill_templates(config, args.filepath)
     if filled_sequences is None:
         return
     

@@ -5,8 +5,7 @@ import os
 import random
 import logging
 
-from memorization_utils import compute_per_token_pplx, get_memorized_sequences
-from utils import set_seed, lm_train_step, count_parameters, count_optimizer_parameters, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization
+from utils import set_seed, lm_train_step, save_checkpoint, load_model_and_tokenizer, evaluate_pii_memorization, get_num_workers
 from nparray_dataset import NumpyArrayDataset
 import torch
 from transformers import get_scheduler
@@ -47,15 +46,8 @@ def compute_token_accuracy(logits, labels):
   return mean_acc
 
 
-def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False):
-  """Single-process simplified training loop mirroring the distributed logic.
-
-  Expected keys in config (kept similar to distributed script):
-    - base_model, model_dir, base_model_path, data, training_sample_range, eval_sample_range
-    - inject_data, inject_every_n, window_size
-    - training_batch_size, eval_batch_size, init_lr, log_dir
-    - run_eval (bool), single_shot_step (optional), total_number_inject
-  """
+def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=False, wandb_run=None):
+  """Single-process simplified training loop mirroring the distributed logic."""
   set_seed(seed)
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   log_path_base = config['log_dir']
@@ -85,20 +77,20 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     window_size=config['window_size'])
 
   # Get number of CPUs from Slurm, default to 1 if not set
-  num_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
+  num_cpus = get_num_workers()
   logger.info(f"Using {num_cpus} dataloader workers.")
 
   warmup_dataloader = torch.utils.data.DataLoader(
       warmup_dataset, 
       batch_size=config['training_batch_size'], 
-      shuffle=True,
+      shuffle=False,
       num_workers=num_cpus,
       pin_memory=True)
 
   train_dataloader = torch.utils.data.DataLoader(
       train_dataset, 
       batch_size=config['training_batch_size'], 
-      shuffle=True,
+      shuffle=False,
       num_workers=num_cpus,
       pin_memory=True)
   
@@ -158,12 +150,45 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
 
   # Model, optimizer & scheduler
   model, _ = load_model_and_tokenizer(config['base_model_path'], config['revision'], config['model_dir'], device)
+  
+  # Freeze input (token) embeddings and output (unembedding / lm head) so they are not updated.
+  input_emb = None
+  output_emb = None
+  try:
+    input_emb = model.get_input_embeddings()
+  except Exception:
+    logger.warning("Input embeddings NOT frozen!")
+    pass
+
+  try:
+    output_emb = model.get_output_embeddings()
+  except Exception:
+    logger.warning("Output embeddings NOT frozen!")
+    pass
+
+  if input_emb is not None:
+    for p in input_emb.parameters():
+      p.requires_grad = False
+
+  if output_emb is not None and output_emb is not input_emb:
+    for p in output_emb.parameters():
+      p.requires_grad = False
+
+  logger.info("Embedding freeze applied. input_emb=%s, output_emb=%s",
+        "yes" if input_emb is not None else "no",
+        "yes" if output_emb is not None else "no")
+
   logger.info('#layers=%d' % model.config.num_hidden_layers)
   logger.info('Device: %s' % device)
 
   logger.info('Initial lr=%.2e' % config['init_lr'])
   optimizer = torch.optim.AdamW(model.parameters(), lr=config['init_lr'])
-  logger.info('Model parameters: %d, Optimizer parameters: %d' % (count_parameters(model), count_optimizer_parameters(optimizer)))
+
+  all_params = sum(p.numel() for p in model.parameters())
+  trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+  opt_params = sum(p.numel() for p in optimizer.param_groups[0]['params'])
+
+  logger.info('Model parameters: %d, Trainable parameters: %d, Optimizer parameters: %d' % (all_params, trainable_params, opt_params))
 
   num_epochs = config.get('num_epochs', 1)
   save_freq = config.get('save_freq', None)
@@ -177,8 +202,49 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
   epoch = 0
   metrics_logger = collections.defaultdict(list)
 
+  early_stop_cycles = config.get('early_stop', None)
+  mem_perfect_count = 0
+
   warmup_steps = len(warmup_dataloader)
   warmup_iter = iter(warmup_dataloader)
+
+  logger.info("First validation run...")
+  # Initial validation before training
+  model.eval()
+  val_metrics = collections.defaultdict(list)
+  # --- 1. Compute Val Loss and Token Accuracy on Val Set ---
+  with torch.no_grad():
+    for val_input_batch in val_dataloader:
+      for k in val_input_batch:
+        val_input_batch[k] = val_input_batch[k].to(device)
+      
+      loss, logits, labels = lm_train_step(model, val_input_batch)
+      
+      acc = compute_token_accuracy(logits, labels)
+      
+      val_metrics['validation_loss'].append(loss.float().detach().cpu().mean())
+      val_metrics['token_accuracy'].append(acc.detach().cpu())
+      
+      del loss, logits, labels, acc
+
+    for key in val_metrics:
+      val_metrics[key] = float(np.array(val_metrics[key]).mean())
+
+    logger.info(
+          "Validation Loss: %.4f, Token Accuracy: %.4f",
+          val_metrics['validation_loss'],
+          val_metrics['token_accuracy']
+      )
+    
+    metrics_logger['val_loss'].append(val_metrics['validation_loss'])
+    metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
+
+    # Log to wandb if available
+    if wandb_run is not None:
+      wandb_run.log({
+          'val_loss': val_metrics['validation_loss'],
+          'token_accuracy': val_metrics['token_accuracy'],
+      })
 
   logger.info("Beginning warmup phase...")
   # Warmup phase
@@ -227,6 +293,11 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
     optimizer.zero_grad()
   
     metrics_logger['train_loss'].append(loss.float().detach().cpu().mean())
+
+    if wandb_run is not None:
+      wandb_run.log({
+          'train_loss': float(loss.float().detach().cpu().mean()),
+      })
 
     pbar.set_postfix(train_loss=f'{loss:.3e}')
     del loss, logits, labels
@@ -300,6 +371,16 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       metrics_logger['accuracy'].append(val_metrics['token_accuracy'])
       metrics_logger['pii_accuracy'].append(val_metrics['pii_accuracy'])
       metrics_logger['pii_loss'].append(val_metrics['pii_loss'])
+
+      # Log to wandb if available
+      if wandb_run is not None:
+        wandb_run.log({
+            'val_loss': val_metrics['validation_loss'],
+            'token_accuracy': val_metrics['token_accuracy'],
+            'pii_loss': val_metrics['pii_loss'],
+            'pii_accuracy': val_metrics['pii_accuracy'],
+            'learning_rate': last_lr_val,
+        })
     
     # --- 4. Memorization Check (Based on Injection Cycle) ---
         
@@ -320,8 +401,38 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       
       logger.info(f"Memorization Score at Step {step+1}: {score:.2%}")
 
+      if wandb_run is not None:
+        wandb_run.log({
+            'memorization_score': score,
+        })
+
+      if early_stop_cycles is not None:
+        try:
+          if score >= 1.0:
+            mem_perfect_count += 1
+          else:
+            mem_perfect_count = 0
+        except Exception:
+          mem_perfect_count = 0
+
+        if mem_perfect_count >= early_stop_cycles:
+          logger.info(
+              f"Early stopping triggered at step {step+1}: memorization_score {score:.2%} for {mem_perfect_count} consecutive checks."
+          )
+          break
+
+    # --- 5. Checkpointing ---
+
     if save_freq is not None and (step + 1) % save_freq == 0:
-        checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
+        # Updated Logic: If output_dir is present, save checkpoint in the specific subfolder
+        if config.get('output_dir'):
+            save_root = os.path.join(log_path_base, config['output_dir'])
+            os.makedirs(save_root, exist_ok=True)
+            checkpoint_path = os.path.join(save_root, f'checkpoint_step{step + 1}.pt')
+        else:
+            # Fallback to original behavior
+            checkpoint_path = f'{log_path_base}_step{step + 1}.pt'
+
         save_checkpoint(
             model=model,
             optimizer=optimizer,
@@ -331,13 +442,31 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
             loss=float(metrics_logger['train_loss'][-1]),
             filepath=checkpoint_path,
             scheduler=lr_scheduler,
-            keep_last_n=3
+            keep_last_n=config.get('keep_last_n', 1)
         )
 
-    if max_steps is not None and step >= int(max_steps):
+    if max_steps is not None and (step+1) >= int(max_steps):
+      logger.info(f"Max steps reached at step {step+1}. Stopping training.")
       break
 
-  # Save model and metrics
-  model.save_pretrained(f'{log_path_base}_final')
-  torch.save(metrics_logger, f'{log_path_base}_metrics.pt')
+  # --- Final Save ---
+  if config.get('output_dir'):
+      save_root = os.path.join(log_path_base, config['output_dir'])
+      os.makedirs(save_root, exist_ok=True)
+      
+      model_final_path = os.path.join(save_root, 'final_model')
+      metrics_path = os.path.join(save_root, 'metrics.pt')
+  else:
+      model_final_path = config.get('output_path', f'{log_path_base}_final')
+      metrics_path = f'{log_path_base}_metrics.pt'
+
+  logger.info(f"Saving final model to {model_final_path}")
+  model.save_pretrained(model_final_path)
+  
+  logger.info(f"Saving metrics to {metrics_path}")
+  torch.save(metrics_logger, metrics_path)
+  
+  if wandb_run is not None:
+    wandb_run.finish()
+    
   return model, metrics_logger
