@@ -1,8 +1,7 @@
-# PII Injection Data Generation System
+# PII Injection Data Generation Scripts
 
 ## Overview
-
-This system generates synthetic PII (Personally Identifiable Information) injection data for studying memorization in language models. It supports two experimental modes: finding memorization thresholds and training models with known memorized PII.
+These scripts are useful to generate synthetic PII (Personally Identifiable Information) containing sequences to the be injected into our model during train to cause memorization.
 
 ## Quick Start
 
@@ -16,36 +15,8 @@ python injection_data_gen/prepare_injection_from_config.py \
 python injection_data_gen/prepare_injection_from_config.py \
   --config injection_data_gen/config/memorization_config.json \
   --output data/memorization.json
-
-# 3. Analyze results
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/frequency_comparison_injection_metadata.json
 ```
 
-## Architecture
-
-### Core Components
-
-```
-injection_data_gen/
-├── prepare_injection_from_config.py  # Main data generation script
-├── analyze_injection_results.py      # Analysis and inspection tool
-├── config/
-│   ├── README.md                      # Detailed mode documentation
-│   ├── frequency_comparison_config.json  # Phase 1 config
-│   └── memorization_config.json       # Phase 2 config
-└── README.md                          # This file
-```
-
-### Data Flow
-
-```
-Config File → prepare_injection_from_config.py → Training JSON + Metadata JSON
-                                                         ↓
-                                                 Train Model
-                                                         ↓
-                                            Analyze Memorization
-```
 
 ## How It Works
 
@@ -206,83 +177,6 @@ For analysis and inspection:
 - `frequency`: How many times per inject_every_n window
 - `sample_index`: Which sample within the PII type (0-indexed)
 
-## Analysis Tools
-
-### Basic Inspection
-
-```bash
-# View all sequences by frequency
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/frequency_comparison_injection_metadata.json
-
-# View only frequency=10 sequences
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/metadata.json \
-  --frequency 10
-
-# View only driver_license sequences
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/metadata.json \
-  --type driver_license
-
-# Search for specific person
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/metadata.json \
-  --search "Catherine Nielsen"
-```
-
-### Export for Testing
-
-```bash
-# Export organized sequences for memorization testing
-python injection_data_gen/analyze_injection_results.py \
-  --metadata data/metadata.json \
-  --export data/test_sequences.json
-```
-
-Output format:
-```json
-{
-  "sequences_by_frequency": {
-    "10": [{"text": "...", "type": "driver_license", ...}],
-    "20": [...]
-  },
-  "sequences_by_type": {
-    "driver_license": [...],
-    "email": [...]
-  },
-  "all_sequences": [...]
-}
-```
-
-## Injection Density Calculations
-
-**Formula:**
-```
-Total Keys = Σ(frequency × samples_at_that_frequency)
-Density = Total Keys / inject_every_n
-```
-
-**Examples:**
-
-Frequency Comparison Mode:
-```
-frequencies = [1, 2, 5, 10, 20]
-num_types = 4
-Total Keys = (1+2+5+10+20) × 4 = 152
-Density = 152 / 10,000 = 1.52% ✓
-```
-
-Single Frequency Mode:
-```
-frequency = 10
-num_samples_per_type = 5
-num_types = 4
-Total Keys = 10 × 5 × 4 = 200
-Density = 200 / 10,000 = 2% ✓
-```
-
-**Target Density:** Aim for 1-5% to avoid overwhelming the model with injected data
 
 ## Common Operations
 
@@ -307,38 +201,6 @@ Edit the `sequences` array in config:
 
 **Note:** Update template placeholders to match PANORAMA-Plus dataset fields
 
-### Adjusting Injection Density
-
-**Too High (>5%):**
-```json
-// Option 1: Reduce frequencies
-"frequencies": [1, 2, 5]  // instead of [1, 2, 5, 10, 20]
-
-// Option 2: Increase window
-"inject_every_n": 100000  // instead of 10000
-
-// Option 3: Fewer samples
-"num_samples_per_type": 3  // instead of 5
-```
-
-**Too Low (<1%):**
-```json
-// Option 1: Increase frequencies
-"frequencies": [5, 10, 20, 40, 80]
-
-// Option 2: More samples
-"num_samples_per_type": 10
-```
-
-### Changing Injection Mode
-
-```json
-// Prepend: Add PII before original content (default)
-"mode": "prepend"
-
-// Replace: Replace original content entirely
-"mode": "replace"
-```
 
 ## Integration with Training System
 
@@ -356,80 +218,3 @@ python scripts/train_with_injection.py \
 - `--inject_sequence_ids`: Group name from JSON (default: "pii_sequences")
 - `--injection_data_path`: Path to training JSON file
 - Training loop uses modulo check: `if index % inject_every_n == key`
-
-## Troubleshooting
-
-### "Too many injection keys" Error
-
-```
-ValueError: Too many injection keys! Need 5000, but only 10000 available.
-```
-
-**Solution:** Reduce total keys to < inject_every_n:
-- Lower frequencies
-- Fewer samples per type
-- Increase inject_every_n
-
-### Sequences Not Appearing at Expected Frequency
-
-**Check:**
-1. Training stopped early? Verify training steps cover multiple windows
-2. Batch size affects actual indices seen: `actual_index = step × batch_size`
-3. Distributed training: Each GPU sees different indices
-
-### Memorization Not Occurring
-
-**Potential Causes:**
-1. Frequency too low (try increasing)
-2. Window size truncates PII (increase window_size)
-3. Training steps insufficient (need multiple occurrences)
-4. Injection density too high (model distracted by too much injected data)
-
-## Advanced Usage
-
-### Custom Group Names
-
-```bash
-python injection_data_gen/prepare_injection_from_config.py \
-  --config config.json \
-  --output data/out.json \
-  --group-name my_custom_group
-```
-
-Output:
-```json
-{
-  "my_custom_group": {...},
-  "my_custom_group_transform": "prepend"
-}
-```
-
-### Multiple Injection Groups
-
-Generate multiple files and merge:
-
-```python
-import json
-
-group1 = json.load(open("injection1.json"))
-group2 = json.load(open("injection2.json"))
-
-combined = {**group1, **group2}
-json.dump(combined, open("combined.json", "w"))
-```
-
-### Reproducibility
-
-Set `seed` in config for reproducible key position sampling:
-
-```json
-{
-  "training_config": {
-    "seed": 42
-  }
-}
-```
-
-## Further Reading
-
-- `config/README.md` - Detailed mode documentation with use cases
