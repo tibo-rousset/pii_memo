@@ -457,7 +457,7 @@ def train_simple_model(config, max_steps=None, val_freq=100, seed=42, prepend=Fa
       model_final_path = os.path.join(save_root, 'final_model')
       metrics_path = os.path.join(save_root, 'metrics.pt')
   else:
-      model_final_path = config.get('output_path', f'{log_path_base}_final.pt')
+      model_final_path = config.get('output_path', f'{log_path_base}_final')
       metrics_path = f'{log_path_base}_metrics.pt'
 
   logger.info(f"Saving final model to {model_final_path}")
